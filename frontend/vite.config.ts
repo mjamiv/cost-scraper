@@ -3,6 +3,8 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  // Base path for GitHub Pages deployment
+  base: '/cost-scraper/',
   server: {
     port: 5173,
     proxy: {

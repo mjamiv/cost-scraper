@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react';
 import { Header } from './components/Header';
 import { FilterBar } from './components/FilterBar';
 import { DataTable } from './components/DataTable';
-import { fetchCostData } from './api/costDataApi';
+import { fetchCostData, isStaticDeployment } from './api/costDataApi';
 import { CostDataRow, QueryFilters } from './api/types';
 
 const DEFAULT_FILTERS: QueryFilters = {
@@ -54,6 +54,25 @@ function App() {
 
       {/* Content */}
       <div className="relative z-10 max-w-[1800px] mx-auto px-6 py-8">
+        {/* Demo Banner for GitHub Pages */}
+        {isStaticDeployment && (
+          <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/30">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-amber-500/30 flex items-center justify-center">
+                <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="font-semibold text-amber-300">Demo Mode</h3>
+                <p className="text-sm text-amber-200/70">
+                  This is a static demo with simulated data. Connect to your Snowflake backend for live data.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         <Header totalRecords={data.length} />
         
         <FilterBar
