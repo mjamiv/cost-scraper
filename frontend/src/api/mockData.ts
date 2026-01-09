@@ -83,7 +83,7 @@ function generateMockRows(): CostDataRow[] {
           FORECAST_MHF: Math.random() * 50 + 10,
           FORECAST_REMAINING_MH: Math.random() * 2000 + 200,
           FORECAST_MH: Math.random() * 6000 + 600,
-          FORECAST_MH_GL: (Math.random() - 0.5) * 300,
+          FORECAST_MH_G_PER_L: (Math.random() - 0.5) * 300,
           FORECAST_REMAINING_PF: Math.random() * 2 + 0.5,
           FORECAST_PF: Math.random() * 2 + 0.5,
           FORECAST_REMAINING_CF: Math.random() * 1.5 + 0.8,
