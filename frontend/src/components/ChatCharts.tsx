@@ -53,18 +53,19 @@ function DarkTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload || payload.length === 0) return null;
 
   return (
-    <div className="bg-midnight-950 border border-accent/50 rounded-lg shadow-xl p-3 text-xs">
-      <p className="text-accent font-semibold mb-2">{label}</p>
+    <div className="bg-midnight-950 border border-accent/40 rounded-xl shadow-2xl p-4 text-xs"
+         style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 212, 170, 0.1)' }}>
+      <p className="text-accent font-semibold mb-3 pb-2 border-b border-midnight-700">{label}</p>
       {payload.map((entry, index) => (
-        <div key={index} className="flex items-center justify-between gap-4 py-0.5">
-          <span className="flex items-center gap-1.5 text-slate-300">
+        <div key={index} className="flex items-center justify-between gap-6 py-1">
+          <span className="flex items-center gap-2 text-slate-300">
             <span
-              className="w-2 h-2 rounded-sm"
+              className="w-3 h-3 rounded"
               style={{ backgroundColor: entry.color }}
             />
             {entry.name}
           </span>
-          <span className="text-slate-100 font-medium">
+          <span className="text-slate-100 font-semibold">
             {formatCurrency(entry.value as number)}
           </span>
         </div>
@@ -129,44 +130,46 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
     <div className="chat-chart">
       <div className="chat-chart-header">{title}</div>
       <div className="chat-chart-body">
-        <ResponsiveContainer width="100%" height={220}>
-          <ComposedChart data={chartData} margin={{ top: 10, right: 30, left: 0, bottom: 20 }}>
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={chartData} margin={{ top: 15, right: 45, left: 5, bottom: 30 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334e68" vertical={false} />
             <XAxis
               dataKey="period"
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: '#334e68' }}
               angle={-45}
               textAnchor="end"
-              interval={Math.floor(chartData.length / 8)}
+              interval={Math.max(0, Math.floor(chartData.length / 10))}
+              dy={5}
             />
             <YAxis
               yAxisId="left"
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               tickFormatter={formatCurrency}
-              width={55}
+              width={60}
             />
             <YAxis
               yAxisId="right"
               orientation="right"
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               tickFormatter={formatCurrency}
-              width={55}
+              width={65}
             />
             <Tooltip content={<DarkTooltip />} />
             <Legend
               verticalAlign="top"
-              height={30}
-              iconSize={10}
-              wrapperStyle={{ fontSize: '11px' }}
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
             />
-            <Bar yAxisId="left" dataKey="spend" name="Period Spend" fill={COLORS.teal} radius={[2, 2, 0, 0]} />
-            <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke={COLORS.purple} strokeWidth={2} dot={false} />
+            <Bar yAxisId="left" dataKey="spend" name="Period Spend" fill={COLORS.teal} radius={[3, 3, 0, 0]} />
+            <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke={COLORS.purple} strokeWidth={2.5} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -216,12 +219,12 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
     <div className="chat-chart">
       <div className="chat-chart-header">{title}</div>
       <div className="chat-chart-body">
-        <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 35)}>
-          <BarChart data={chartData} layout="vertical" margin={{ top: 10, right: 30, left: 60, bottom: 10 }}>
+        <ResponsiveContainer width="100%" height={Math.max(220, chartData.length * 40)}>
+          <BarChart data={chartData} layout="vertical" margin={{ top: 15, right: 40, left: 70, bottom: 15 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334e68" horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: '#334e68' }}
               tickFormatter={formatCurrency}
@@ -229,15 +232,21 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
             <YAxis
               type="category"
               dataKey="project"
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 500 }}
               tickLine={false}
               axisLine={false}
-              width={55}
+              width={65}
             />
             <Tooltip content={<DarkTooltip />} />
-            <Legend verticalAlign="top" height={30} iconSize={10} wrapperStyle={{ fontSize: '11px' }} />
-            <Bar dataKey="spent" name="Spent" stackId="a" fill={COLORS.teal} />
-            <Bar dataKey="remaining" name="Remaining" stackId="a" fill={COLORS.blue} opacity={0.5} />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+            />
+            <Bar dataKey="spent" name="Spent" stackId="a" fill={COLORS.teal} radius={[0, 3, 3, 0]} />
+            <Bar dataKey="remaining" name="Remaining" stackId="a" fill={COLORS.blue} opacity={0.6} radius={[0, 3, 3, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
@@ -275,19 +284,21 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
 
   if (!chartData.length) return null;
 
+  const total = chartData.reduce((sum, item) => sum + item.value, 0);
+
   return (
     <div className="chat-chart">
       <div className="chat-chart-header">{title}</div>
       <div className="chat-chart-body">
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={280}>
           <PieChart>
             <Pie
               data={chartData}
               cx="50%"
-              cy="50%"
-              innerRadius={50}
-              outerRadius={80}
-              paddingAngle={2}
+              cy="45%"
+              innerRadius={60}
+              outerRadius={95}
+              paddingAngle={3}
               dataKey="value"
               label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
               labelLine={{ stroke: '#64748b', strokeWidth: 1 }}
@@ -296,9 +307,27 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
                 <Cell key={`cell-${index}`} fill={PIE_COLORS[index % PIE_COLORS.length]} />
               ))}
             </Pie>
-            <Tooltip formatter={(value: number) => formatCurrency(value)} />
+            <Tooltip
+              formatter={(value: number) => [formatCurrency(value), 'Budget']}
+              contentStyle={{
+                backgroundColor: '#0a1929',
+                border: '1px solid rgba(0, 212, 170, 0.3)',
+                borderRadius: '8px',
+                fontSize: '12px'
+              }}
+            />
+            <Legend
+              verticalAlign="bottom"
+              height={36}
+              iconType="circle"
+              iconSize={10}
+              wrapperStyle={{ fontSize: '11px', paddingTop: '10px' }}
+            />
           </PieChart>
         </ResponsiveContainer>
+        <div className="text-center text-xs text-slate-400 mt-2 pb-2">
+          Total Budget: <span className="text-accent font-semibold">{formatCurrency(total)}</span>
+        </div>
       </div>
     </div>
   );
@@ -337,16 +366,19 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
 
   if (!chartData.length) return null;
 
+  const favorableCount = chartData.filter(d => d.variance >= 0).length;
+  const unfavorableCount = chartData.filter(d => d.variance < 0).length;
+
   return (
     <div className="chat-chart">
       <div className="chat-chart-header">{title}</div>
       <div className="chat-chart-body">
-        <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 28)}>
-          <BarChart data={chartData} layout="vertical" margin={{ top: 10, right: 30, left: 80, bottom: 10 }}>
+        <ResponsiveContainer width="100%" height={Math.max(220, chartData.length * 32)}>
+          <BarChart data={chartData} layout="vertical" margin={{ top: 15, right: 40, left: 90, bottom: 15 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#334e68" horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fill: '#94a3b8', fontSize: 10 }}
+              tick={{ fill: '#94a3b8', fontSize: 11 }}
               tickLine={false}
               axisLine={{ stroke: '#334e68' }}
               tickFormatter={formatCurrency}
@@ -354,17 +386,17 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fill: '#94a3b8', fontSize: 9 }}
+              tick={{ fill: '#cbd5e1', fontSize: 10 }}
               tickLine={false}
               axisLine={false}
-              width={75}
+              width={85}
             />
             <Tooltip content={<DarkTooltip />} />
             <Bar
               dataKey="variance"
               name="Variance"
               fill={COLORS.teal}
-              radius={[0, 2, 2, 0]}
+              radius={[0, 4, 4, 0]}
             >
               {chartData.map((entry, index) => (
                 <Cell key={`cell-${index}`} fill={entry.variance >= 0 ? COLORS.emerald : COLORS.red} />
@@ -372,6 +404,16 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
             </Bar>
           </BarChart>
         </ResponsiveContainer>
+        <div className="flex justify-center gap-6 text-xs mt-2 pb-2">
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.emerald }}></span>
+            <span className="text-emerald-400">Favorable: {favorableCount}</span>
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="w-3 h-3 rounded" style={{ backgroundColor: COLORS.red }}></span>
+            <span className="text-red-400">Unfavorable: {unfavorableCount}</span>
+          </span>
+        </div>
       </div>
     </div>
   );

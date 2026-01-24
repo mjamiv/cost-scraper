@@ -94,5 +94,142 @@ export async function fetchProjects(districtId?: string) {
   return response.json();
 }
 
+// Chat API types
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
+export interface ChatRequest {
+  message: string;
+  data_context: string;
+  history: ChatMessage[];
+}
+
+export interface ChatResponse {
+  success: boolean;
+  response: string;
+  error?: string;
+}
+
+export async function sendChatMessage(request: ChatRequest): Promise<ChatResponse> {
+  // For static deployment, return a demo response
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 800));
+    return {
+      success: true,
+      response: `This is a demo response. In production, this would analyze your cost data and answer: "${request.message}"\n\nTo enable the AI chatbot, connect to a backend with the ANTHROPIC_API_KEY configured.`
+    };
+  }
+
+  const response = await fetch(`${API_BASE}/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function* streamChatMessage(request: ChatRequest): AsyncGenerator<string, void, unknown> {
+  // For static deployment, simulate streaming
+  if (isStaticDeployment) {
+    const demoResponse = `This is a demo response. In production, this would analyze your cost data and answer: "${request.message}"\n\nTo enable the AI chatbot, connect to a backend with the ANTHROPIC_API_KEY configured.`;
+    for (const word of demoResponse.split(' ')) {
+      await new Promise(resolve => setTimeout(resolve, 50));
+      yield word + ' ';
+    }
+    return;
+  }
+
+  const response = await fetch(`${API_BASE}/chat/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('No response body');
+
+  const decoder = new TextDecoder();
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split('\n');
+
+    for (const line of lines) {
+      if (line.startsWith('data: ')) {
+        const data = line.slice(6);
+        if (data === '[DONE]') return;
+        if (data.startsWith('[ERROR]')) {
+          throw new Error(data.slice(8));
+        }
+        yield data;
+      }
+    }
+  }
+}
+
+// Voice API functions
+export async function transcribeAudio(audioBlob: Blob): Promise<{ success: boolean; text: string }> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    return { success: true, text: "This is a demo transcription. Connect to backend for real voice input." };
+  }
+
+  const formData = new FormData();
+  formData.append('audio', audioBlob, 'audio.webm');
+
+  const response = await fetch(`${API_BASE}/voice/transcribe`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Transcription failed: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+export async function synthesizeSpeech(text: string, voice: string = 'alloy'): Promise<Blob> {
+  if (isStaticDeployment) {
+    // Return empty audio for demo
+    return new Blob([], { type: 'audio/mpeg' });
+  }
+
+  const formData = new FormData();
+  formData.append('text', text);
+  formData.append('voice', voice);
+
+  const response = await fetch(`${API_BASE}/voice/synthesize`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Speech synthesis failed: ${response.status}`);
+  }
+
+  return response.blob();
+}
+
 export { isStaticDeployment };
 

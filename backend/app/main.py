@@ -6,16 +6,27 @@ Endpoints:
 - GET /api/test-connection - Detailed Snowflake connection test
 - POST /api/query - Execute CR Cube query with filters
 - GET /api/projects - List available projects
+- POST /api/chat - Chat with AI about cost data
+- POST /api/voice/transcribe - Transcribe audio to text
+- POST /api/voice/synthesize - Convert text to speech
 """
 
 import logging
 import time
 import re
-from typing import Optional
+import io
+import base64
+import warnings
+from typing import Optional, Any
 
-from fastapi import FastAPI, HTTPException, Query
+# Suppress SSL warnings for corporate proxy environments
+warnings.filterwarnings("ignore", message="Unverified HTTPS request")
+
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel, Field, field_validator
+from openai import OpenAI
 
 from app.config import get_settings, get_allowed_origins
 from app.snowflake_client import test_connection, execute_query
@@ -120,6 +131,26 @@ class ConnectionResponse(BaseModel):
     account: Optional[str] = None
     version: Optional[str] = None
     connection_time_ms: Optional[float] = None
+    error: Optional[str] = None
+
+
+class ChatMessage(BaseModel):
+    """A single chat message."""
+    role: str  # "user" or "assistant"
+    content: str
+
+
+class ChatRequest(BaseModel):
+    """Request model for chat endpoint."""
+    message: str = Field(..., min_length=1, max_length=4000, description="User's question")
+    data_context: str = Field(..., description="JSON or markdown summary of the cost data")
+    history: list[ChatMessage] = Field(default=[], description="Previous messages in conversation")
+
+
+class ChatResponse(BaseModel):
+    """Response model for chat endpoint."""
+    success: bool
+    response: str
     error: Optional[str] = None
 
 
@@ -358,6 +389,214 @@ async def api_filters():
 
     except Exception as e:
         logger.error(f"Failed to fetch filters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_openai_client():
+    """Get configured OpenAI client."""
+    import httpx
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Chat feature not configured. Set OPENAI_API_KEY in environment."
+        )
+
+    # Handle corporate SSL inspection by disabling cert verification
+    # In production, configure proper CA certificates instead
+    http_client = httpx.Client(verify=False)
+
+    return OpenAI(api_key=settings.openai_api_key, http_client=http_client)
+
+
+def get_system_prompt(data_context: str) -> str:
+    """Build the system prompt with data context."""
+    return f"""You are a cost analyst assistant. Be direct and concise.
+
+## Data
+{data_context}
+
+## Response Rules
+1. **Be brief** - Answer the question directly. No preamble or filler.
+2. **Use tables** for comparisons. Use valid markdown:
+   ```
+   | Item | Budget | Actual | Variance |
+   |------|--------|--------|----------|
+   | Labor | $100,000 | $95,000 | +$5,000 |
+   ```
+3. **Format numbers** - Currency: $1,234,567. Percent: 85.2%
+4. **Flag issues** - Critical (>10%), Warning (5-10%), Watch (<5%)
+5. **No fluff** - Skip intros like "Great question!" or "Let me analyze..."
+6. **Expand only when asked** - Give concise answers unless user asks for detail
+
+## Key Terms
+CB=Budget, JTD=Job-to-Date, Fcst=Forecast, Var=Variance (+favorable/-unfavorable), CBS=Cost Breakdown"""
+
+
+@app.post("/api/chat", response_model=ChatResponse)
+async def api_chat(request: ChatRequest):
+    """
+    Chat with AI about the cost data using OpenAI GPT-4.
+    """
+    logger.info(f"Chat request: {request.message[:100]}...")
+
+    try:
+        client = get_openai_client()
+
+        # Build messages
+        messages = [{"role": "system", "content": get_system_prompt(request.data_context)}]
+
+        for msg in request.history[-10:]:
+            messages.append({"role": msg.role, "content": msg.content})
+
+        messages.append({"role": "user", "content": request.message})
+
+        # Call OpenAI API
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_tokens=1000,
+            temperature=0.3
+        )
+
+        assistant_response = response.choices[0].message.content
+
+        logger.info(f"Chat response generated: {len(assistant_response)} chars")
+
+        return ChatResponse(
+            success=True,
+            response=assistant_response
+        )
+
+    except Exception as e:
+        logger.error(f"Chat error: {e}")
+        return ChatResponse(
+            success=False,
+            response="",
+            error=f"AI service error: {str(e)}"
+        )
+
+
+@app.post("/api/chat/stream")
+async def api_chat_stream(request: ChatRequest):
+    """
+    Stream chat responses from AI for better UX.
+    Returns Server-Sent Events with incremental response.
+    """
+    logger.info(f"Streaming chat request: {request.message[:100]}...")
+
+    async def generate():
+        try:
+            client = get_openai_client()
+
+            messages = [{"role": "system", "content": get_system_prompt(request.data_context)}]
+
+            for msg in request.history[-10:]:
+                messages.append({"role": msg.role, "content": msg.content})
+
+            messages.append({"role": "user", "content": request.message})
+
+            stream = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.3,
+                stream=True
+            )
+
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    yield f"data: {chunk.choices[0].delta.content}\n\n"
+
+            yield "data: [DONE]\n\n"
+
+        except Exception as e:
+            logger.error(f"Stream error: {e}")
+            yield f"data: [ERROR] {str(e)}\n\n"
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        }
+    )
+
+
+@app.post("/api/voice/transcribe")
+async def api_voice_transcribe(audio: UploadFile = File(...)):
+    """
+    Transcribe audio to text using OpenAI Whisper.
+    Accepts audio files (webm, mp3, wav, etc.)
+    """
+    logger.info(f"Transcribe request: {audio.filename}, {audio.content_type}")
+
+    try:
+        client = get_openai_client()
+
+        # Read audio content
+        audio_content = await audio.read()
+
+        # Create a file-like object for OpenAI
+        audio_file = io.BytesIO(audio_content)
+        audio_file.name = audio.filename or "audio.webm"
+
+        # Transcribe using Whisper
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1",
+            file=audio_file,
+            response_format="text"
+        )
+
+        logger.info(f"Transcribed: {transcript[:100]}...")
+
+        return {"success": True, "text": transcript}
+
+    except Exception as e:
+        logger.error(f"Transcription error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/voice/synthesize")
+async def api_voice_synthesize(
+    text: str = Form(...),
+    voice: str = Form(default="alloy")
+):
+    """
+    Convert text to speech using OpenAI TTS.
+
+    Available voices: alloy, echo, fable, onyx, nova, shimmer
+    """
+    logger.info(f"Synthesize request: {len(text)} chars, voice={voice}")
+
+    try:
+        client = get_openai_client()
+
+        # Generate speech
+        response = client.audio.speech.create(
+            model="tts-1",
+            voice=voice,
+            input=text,
+            response_format="mp3"
+        )
+
+        # Get audio bytes
+        audio_bytes = response.content
+
+        logger.info(f"Generated audio: {len(audio_bytes)} bytes")
+
+        return Response(
+            content=audio_bytes,
+            media_type="audio/mpeg",
+            headers={
+                "Content-Disposition": "inline; filename=response.mp3"
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Synthesis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

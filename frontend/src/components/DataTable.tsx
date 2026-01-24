@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import {
   useReactTable,
   getCoreRowModel,
@@ -12,6 +12,7 @@ import {
   ColumnFiltersState,
   ExpandedState,
   Row,
+  VisibilityState,
 } from '@tanstack/react-table';
 import { CostDataRow, HierarchicalCostDataRow } from '../api/types';
 import { buildHierarchicalData } from '../utils/hierarchyUtils';
@@ -20,6 +21,24 @@ interface DataTableProps {
   data: CostDataRow[];
   isLoading: boolean;
 }
+
+// Column groups configuration
+const COLUMN_GROUPS = [
+  { id: 'identification', label: 'Identification', columns: ['expander', 'FISCAL_YEAR_MONTH_NO', 'PROJECT_NUMBER', 'LEAD_DISTRICT', 'WBS_ELEMENT', 'CBS_HIERARCHY', 'WBS_DESCRIPTION'], className: 'group-identification' },
+  { id: 'budget', label: 'Budget', columns: ['CB_QTY', 'CB_AMT', 'CB_UNIT_COST'], className: 'group-budget' },
+  { id: 'period', label: 'Period', columns: ['PER_QTY', 'PER_PERC_COMP', 'PER_SPEND'], className: 'group-period' },
+  { id: 'jtd', label: 'JTD', columns: ['JTD_QTY', 'JTD_PERC_COMP', 'JTD_SPEND'], className: 'group-jtd' },
+  { id: 'forecast', label: 'Forecast', columns: ['FORECAST_AMOUNT', 'FORECAST_REMAINING_AMOUNT', 'FORECAST_CHANGE', 'SL_VARIANCE'], className: 'group-forecast' },
+];
+
+// Default hidden columns
+const DEFAULT_HIDDEN_COLUMNS: Record<string, boolean> = {
+  LEAD_DISTRICT: false,
+  WBS_ELEMENT: false,
+  CB_UNIT_COST: false,
+  PER_QTY: false,
+  JTD_QTY: false,
+};
 
 function formatNumber(value: number | null, decimals = 2): string {
   if (value === null || value === undefined) return '—';
@@ -44,11 +63,21 @@ function formatPercent(value: number | null): string {
   return `${(value * 100).toFixed(1)}%`;
 }
 
-function getValueClass(value: number | null): string {
-  if (value === null) return 'text-slate-500';
-  if (value > 0) return 'text-emerald-400';
-  if (value < 0) return 'text-red-400';
-  return 'text-slate-300';
+// Variance formatting with symbols for accessibility
+function formatVariance(value: number | null): { text: string; className: string } {
+  if (value === null || value === undefined) {
+    return { text: '—', className: 'text-slate-500' };
+  }
+
+  const formatted = formatCurrency(Math.abs(value));
+
+  if (value > 0) {
+    return { text: `+${formatted.replace('$', '$')}`, className: 'variance-favorable' };
+  }
+  if (value < 0) {
+    return { text: `▼ ${formatted}`, className: 'variance-unfavorable' };
+  }
+  return { text: formatted, className: 'variance-neutral' };
 }
 
 export function DataTable({ data, isLoading }: DataTableProps) {
@@ -56,6 +85,20 @@ export function DataTable({ data, isLoading }: DataTableProps) {
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState('');
   const [expanded, setExpanded] = useState<ExpandedState>({});
+  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(DEFAULT_HIDDEN_COLUMNS);
+  const [showColumnMenu, setShowColumnMenu] = useState(false);
+  const columnMenuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (columnMenuRef.current && !columnMenuRef.current.contains(event.target as Node)) {
+        setShowColumnMenu(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Transform flat data to hierarchical structure
   const hierarchicalData = useMemo(() => buildHierarchicalData(data), [data]);
@@ -98,6 +141,7 @@ export function DataTable({ data, isLoading }: DataTableProps) {
           );
         },
         size: 40,
+        meta: { group: 'identification' },
       },
       // Identification columns
       {
@@ -107,6 +151,7 @@ export function DataTable({ data, isLoading }: DataTableProps) {
           <span className="text-accent font-semibold">{getValue() as string}</span>
         ),
         size: 80,
+        meta: { group: 'identification' },
       },
       {
         header: 'Project',
@@ -115,17 +160,20 @@ export function DataTable({ data, isLoading }: DataTableProps) {
           <span className="font-semibold">{getValue() as string}</span>
         ),
         size: 90,
+        meta: { group: 'identification' },
       },
       {
         header: 'District',
         accessorKey: 'LEAD_DISTRICT',
         cell: ({ getValue }) => getValue() || '—',
         size: 120,
+        meta: { group: 'identification' },
       },
       {
         header: 'WBS Element',
         accessorKey: 'WBS_ELEMENT',
         size: 140,
+        meta: { group: 'identification' },
       },
       {
         header: 'CBS Hierarchy',
@@ -133,13 +181,17 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         cell: ({ row, getValue }) => {
           const depth = row.original.depth;
           const isAggregated = row.original.isAggregated;
+          const hasChildren = row.subRows && row.subRows.length > 0;
           const value = getValue() as string | null;
 
           return (
-            <div style={{ paddingLeft: depth * 20 }}>
+            <div
+              className="tree-indent"
+              style={{ paddingLeft: depth * 40 }}
+            >
               <span
                 className={`text-xs ${
-                  isAggregated ? 'text-amber-400 font-medium' : ''
+                  isAggregated || hasChildren ? 'text-amber-400 font-bold' : ''
                 }`}
               >
                 {value || '—'}
@@ -148,18 +200,20 @@ export function DataTable({ data, isLoading }: DataTableProps) {
           );
         },
         size: 200,
+        meta: { group: 'identification' },
       },
       {
         header: 'Description',
         accessorKey: 'WBS_DESCRIPTION',
         cell: ({ row, getValue }) => {
           const isAggregated = row.original.isAggregated;
+          const hasChildren = row.subRows && row.subRows.length > 0;
           const value = getValue() as string | null;
 
           return (
             <span
               className={`text-xs truncate max-w-[200px] block ${
-                isAggregated ? 'text-amber-400/80 italic' : ''
+                isAggregated || hasChildren ? 'text-amber-400/80 italic font-semibold' : ''
               }`}
               title={value || ''}
             >
@@ -168,28 +222,35 @@ export function DataTable({ data, isLoading }: DataTableProps) {
           );
         },
         size: 200,
+        meta: { group: 'identification' },
       },
 
       // Current Budget columns
       {
         header: 'CB Qty',
         accessorKey: 'CB_QTY',
-        cell: ({ getValue }) => formatNumber(getValue() as number | null),
-        meta: { group: 'budget' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatNumber(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'budget', align: 'right' },
         size: 80,
       },
       {
         header: 'CB Amount',
         accessorKey: 'CB_AMT',
-        cell: ({ getValue }) => formatCurrency(getValue() as number | null),
-        meta: { group: 'budget' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'budget', align: 'right' },
         size: 100,
       },
       {
         header: 'CB Unit Cost',
         accessorKey: 'CB_UNIT_COST',
-        cell: ({ getValue }) => formatCurrency(getValue() as number | null),
-        meta: { group: 'budget' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'budget', align: 'right' },
         size: 100,
       },
 
@@ -197,22 +258,28 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       {
         header: 'Per Qty',
         accessorKey: 'PER_QTY',
-        cell: ({ getValue }) => formatNumber(getValue() as number | null),
-        meta: { group: 'period' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatNumber(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'period', align: 'right' },
         size: 80,
       },
       {
         header: 'Per % Comp',
         accessorKey: 'PER_PERC_COMP',
-        cell: ({ getValue }) => formatPercent(getValue() as number | null),
-        meta: { group: 'period' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatPercent(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'period', align: 'right' },
         size: 90,
       },
       {
         header: 'Per Spend',
         accessorKey: 'PER_SPEND',
-        cell: ({ getValue }) => formatCurrency(getValue() as number | null),
-        meta: { group: 'period' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'period', align: 'right' },
         size: 100,
       },
 
@@ -220,22 +287,28 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       {
         header: 'JTD Qty',
         accessorKey: 'JTD_QTY',
-        cell: ({ getValue }) => formatNumber(getValue() as number | null),
-        meta: { group: 'jtd' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatNumber(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'jtd', align: 'right' },
         size: 80,
       },
       {
         header: 'JTD % Comp',
         accessorKey: 'JTD_PERC_COMP',
-        cell: ({ getValue }) => formatPercent(getValue() as number | null),
-        meta: { group: 'jtd' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatPercent(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'jtd', align: 'right' },
         size: 90,
       },
       {
         header: 'JTD Spend',
         accessorKey: 'JTD_SPEND',
-        cell: ({ getValue }) => formatCurrency(getValue() as number | null),
-        meta: { group: 'jtd' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'jtd', align: 'right' },
         size: 100,
       },
 
@@ -243,15 +316,19 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       {
         header: 'Fcst Amount',
         accessorKey: 'FORECAST_AMOUNT',
-        cell: ({ getValue }) => formatCurrency(getValue() as number | null),
-        meta: { group: 'forecast' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'forecast', align: 'right' },
         size: 110,
       },
       {
         header: 'Fcst Remain',
         accessorKey: 'FORECAST_REMAINING_AMOUNT',
-        cell: ({ getValue }) => formatCurrency(getValue() as number | null),
-        meta: { group: 'forecast' },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'forecast', align: 'right' },
         size: 110,
       },
       {
@@ -259,9 +336,10 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         accessorKey: 'FORECAST_CHANGE',
         cell: ({ getValue }) => {
           const val = getValue() as number | null;
-          return <span className={getValueClass(val)}>{formatCurrency(val)}</span>;
+          const { text, className } = formatVariance(val);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
         },
-        meta: { group: 'forecast' },
+        meta: { group: 'forecast', align: 'right' },
         size: 100,
       },
       {
@@ -269,9 +347,10 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         accessorKey: 'SL_VARIANCE',
         cell: ({ getValue }) => {
           const val = getValue() as number | null;
-          return <span className={getValueClass(val)}>{formatCurrency(val)}</span>;
+          const { text, className } = formatVariance(val);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
         },
-        meta: { group: 'forecast' },
+        meta: { group: 'forecast', align: 'right' },
         size: 100,
       },
     ],
@@ -286,11 +365,13 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       columnFilters,
       globalFilter,
       expanded,
+      columnVisibility,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
     onExpandedChange: setExpanded,
+    onColumnVisibilityChange: setColumnVisibility,
     getSubRows: (row) => row.subRows,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -313,15 +394,87 @@ export function DataTable({ data, isLoading }: DataTableProps) {
   };
 
   const getRowClassName = (row: Row<HierarchicalCostDataRow>): string => {
-    const baseClass = '';
     const isAggregated = row.original.isAggregated;
     const hasChildren = row.subRows && row.subRows.length > 0;
+    const depth = row.original.depth;
+
+    let classes = '';
 
     if (isAggregated || hasChildren) {
-      return `${baseClass} bg-midnight-700/40`;
+      classes += ' hierarchy-parent-row';
+      if (depth === 0) {
+        classes += ' hierarchy-depth-0';
+      } else if (depth === 1) {
+        classes += ' hierarchy-depth-1';
+      } else {
+        classes += ' hierarchy-depth-2';
+      }
     }
 
-    return baseClass;
+    return classes;
+  };
+
+  // Calculate totals from root-level rows only
+  const totals = useMemo(() => {
+    const rootRows = hierarchicalData;
+    return {
+      CB_AMT: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.CB_AMT)) || 0), 0),
+      PER_SPEND: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.PER_SPEND)) || 0), 0),
+      JTD_SPEND: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.JTD_SPEND)) || 0), 0),
+      FORECAST_AMOUNT: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.FORECAST_AMOUNT)) || 0), 0),
+      FORECAST_CHANGE: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.FORECAST_CHANGE)) || 0), 0),
+      SL_VARIANCE: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.SL_VARIANCE)) || 0), 0),
+    };
+  }, [hierarchicalData]);
+
+  // Get visible column groups with their spans
+  const visibleColumnGroups = useMemo(() => {
+    const headerGroup = table.getHeaderGroups()[0];
+    if (!headerGroup) return [];
+
+    const visibleHeaders = headerGroup.headers;
+    const groups: { id: string; label: string; className: string; span: number }[] = [];
+
+    for (const group of COLUMN_GROUPS) {
+      const visibleInGroup = visibleHeaders.filter(h => {
+        const meta = h.column.columnDef.meta as { group?: string } | undefined;
+        return meta?.group === group.id || group.columns.includes(h.column.id);
+      });
+
+      if (visibleInGroup.length > 0) {
+        groups.push({
+          id: group.id,
+          label: group.label,
+          className: group.className,
+          span: visibleInGroup.length,
+        });
+      }
+    }
+
+    return groups;
+  }, [table.getHeaderGroups(), columnVisibility]);
+
+  // Column labels for visibility menu
+  const columnLabels: Record<string, string> = {
+    FISCAL_YEAR_MONTH_NO: 'Period',
+    PROJECT_NUMBER: 'Project',
+    LEAD_DISTRICT: 'District',
+    WBS_ELEMENT: 'WBS Element',
+    CBS_HIERARCHY: 'CBS Hierarchy',
+    WBS_DESCRIPTION: 'Description',
+    CB_QTY: 'CB Qty',
+    CB_AMT: 'CB Amount',
+    CB_UNIT_COST: 'CB Unit Cost',
+    PER_QTY: 'Period Qty',
+    PER_PERC_COMP: 'Period % Complete',
+    PER_SPEND: 'Period Spend',
+    JTD_QTY: 'JTD Qty',
+    JTD_PERC_COMP: 'JTD % Complete',
+    JTD_SPEND: 'JTD Spend',
+    FORECAST_AMOUNT: 'Forecast Amount',
+    FORECAST_REMAINING_AMOUNT: 'Forecast Remaining',
+    FORECAST_CHANGE: 'Forecast Change',
+    SL_VARIANCE: 'SL Variance',
   };
 
   if (isLoading) {
@@ -417,6 +570,49 @@ export function DataTable({ data, isLoading }: DataTableProps) {
               Collapse All
             </button>
           </div>
+
+          {/* Column Visibility Dropdown */}
+          <div className="column-visibility-dropdown" ref={columnMenuRef}>
+            <button
+              onClick={() => setShowColumnMenu(!showColumnMenu)}
+              className="btn-secondary text-sm px-3 py-1.5"
+              title="Show/hide columns"
+            >
+              <svg
+                className="w-4 h-4 mr-1 inline"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
+                />
+              </svg>
+              Columns
+            </button>
+            {showColumnMenu && (
+              <div className="column-visibility-menu">
+                <div className="px-4 py-2 border-b border-midnight-600 text-xs font-semibold text-slate-400 uppercase">
+                  Toggle Columns
+                </div>
+                {table.getAllLeafColumns()
+                  .filter(col => col.id !== 'expander')
+                  .map(column => (
+                    <label key={column.id} className="column-visibility-item">
+                      <input
+                        type="checkbox"
+                        checked={column.getIsVisible()}
+                        onChange={column.getToggleVisibilityHandler()}
+                      />
+                      <span>{columnLabels[column.id] || column.id}</span>
+                    </label>
+                  ))}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -444,6 +640,19 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       <div className="overflow-x-auto">
         <table className="data-table">
           <thead>
+            {/* Column Group Header Row */}
+            <tr className="column-group-header">
+              {visibleColumnGroups.map(group => (
+                <th
+                  key={group.id}
+                  colSpan={group.span}
+                  className={group.className}
+                >
+                  {group.label}
+                </th>
+              ))}
+            </tr>
+            {/* Individual Column Headers */}
             <tr>
               {table.getHeaderGroups().map((headerGroup) =>
                 headerGroup.headers.map((header) => (
@@ -480,6 +689,51 @@ export function DataTable({ data, isLoading }: DataTableProps) {
               </tr>
             ))}
           </tbody>
+          {/* Totals Footer */}
+          <tfoot>
+            <tr>
+              {/* Span for identification columns */}
+              <td colSpan={table.getVisibleLeafColumns().filter(c => {
+                const meta = c.columnDef.meta as { group?: string } | undefined;
+                return meta?.group === 'identification' || ['expander', 'FISCAL_YEAR_MONTH_NO', 'PROJECT_NUMBER', 'LEAD_DISTRICT', 'WBS_ELEMENT', 'CBS_HIERARCHY', 'WBS_DESCRIPTION'].includes(c.id);
+              }).length} className="text-accent uppercase text-sm">
+                Total
+              </td>
+              {/* Budget columns */}
+              {columnVisibility.CB_QTY !== false && <td></td>}
+              {columnVisibility.CB_AMT !== false && (
+                <td className="text-right tabular-nums">{formatCurrency(totals.CB_AMT)}</td>
+              )}
+              {columnVisibility.CB_UNIT_COST !== false && <td></td>}
+              {/* Period columns */}
+              {columnVisibility.PER_QTY !== false && <td></td>}
+              {columnVisibility.PER_PERC_COMP !== false && <td></td>}
+              {columnVisibility.PER_SPEND !== false && (
+                <td className="text-right tabular-nums">{formatCurrency(totals.PER_SPEND)}</td>
+              )}
+              {/* JTD columns */}
+              {columnVisibility.JTD_QTY !== false && <td></td>}
+              {columnVisibility.JTD_PERC_COMP !== false && <td></td>}
+              {columnVisibility.JTD_SPEND !== false && (
+                <td className="text-right tabular-nums">{formatCurrency(totals.JTD_SPEND)}</td>
+              )}
+              {/* Forecast columns */}
+              {columnVisibility.FORECAST_AMOUNT !== false && (
+                <td className="text-right tabular-nums">{formatCurrency(totals.FORECAST_AMOUNT)}</td>
+              )}
+              {columnVisibility.FORECAST_REMAINING_AMOUNT !== false && <td></td>}
+              {columnVisibility.FORECAST_CHANGE !== false && (
+                <td className={`text-right tabular-nums ${totals.FORECAST_CHANGE >= 0 ? 'variance-favorable' : 'variance-unfavorable'}`}>
+                  {totals.FORECAST_CHANGE >= 0 ? '+' : '▼ '}{formatCurrency(Math.abs(totals.FORECAST_CHANGE))}
+                </td>
+              )}
+              {columnVisibility.SL_VARIANCE !== false && (
+                <td className={`text-right tabular-nums ${totals.SL_VARIANCE >= 0 ? 'variance-favorable' : 'variance-unfavorable'}`}>
+                  {totals.SL_VARIANCE >= 0 ? '+' : '▼ '}{formatCurrency(Math.abs(totals.SL_VARIANCE))}
+                </td>
+              )}
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>

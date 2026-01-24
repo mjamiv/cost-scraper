@@ -1,0 +1,25 @@
+# Render Blueprint for backend deployment
+# https://render.com/docs/blueprint-spec
+
+services:
+  - type: web
+    name: cost-scraper-api
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    envVars:
+      - key: SF_ACCOUNT
+        sync: false
+      - key: SF_USER
+        sync: false
+      - key: SF_ROLE
+        sync: false
+      - key: SF_WAREHOUSE
+        sync: false
+      - key: SF_PRIVATE_KEY_B64
+        sync: false
+      - key: SF_PRIVATE_KEY_PASSPHRASE
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false
+    healthCheckPath: /health
