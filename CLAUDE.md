@@ -101,3 +101,23 @@ ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
 ## Demo Mode
 
 The frontend supports a demo mode with mock data when deployed to GitHub Pages. This activates automatically when hosted on `*.github.io` domains.
+
+## Key Features
+
+### Hierarchical DataTable
+- CBS_HIERARCHY based expand/collapse tree structure
+- Aggregated totals for parent nodes
+- Visual indentation by depth level
+- "Expand All" / "Collapse All" controls
+
+### Spend Analysis Chart
+- Financial report-style design (white background, clean typography)
+- Bar chart for monthly/period spend (left Y-axis)
+- Line chart for cumulative spend (right Y-axis)
+- Date range slider to filter time periods
+- Summary statistics: Total Spend, Avg Monthly Spend, # Periods
+
+### Data Processing Notes
+- Snowflake returns numeric values as strings - use `parseFloat()` when aggregating
+- Top-level CBS rows (≤1 dot in hierarchy) are used for chart aggregation
+- Period spend derived from PER_SPEND or JTD_SPEND differences

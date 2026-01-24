@@ -9,8 +9,11 @@ A modern web application for querying and visualizing project cost data from Sno
 ## Features
 
 - 📊 **Interactive Data Table** - Sort, filter, and paginate through cost data
+- 🌳 **Hierarchical View** - Expand/collapse CBS hierarchy levels with aggregated totals
+- 📈 **Spend Analysis Chart** - Financial report-style chart with monthly bars and cumulative line
+- 🎚️ **Date Range Filter** - Slider controls to focus on specific time periods
 - 🔍 **Flexible Querying** - Filter by project numbers, fiscal periods, and districts
-- 📈 **Comprehensive Metrics** - View budget, period, JTD, and forecast data
+- 📋 **Comprehensive Metrics** - View budget, period, JTD, and forecast data
 - ⚡ **Fast & Responsive** - Built with FastAPI and React for optimal performance
 
 ## Tech Stack
@@ -18,7 +21,7 @@ A modern web application for querying and visualizing project cost data from Sno
 | Layer | Technology |
 |-------|------------|
 | Backend | Python 3.10+, FastAPI, Snowflake Connector |
-| Frontend | React 18, TypeScript, TanStack Table |
+| Frontend | React 18, TypeScript, TanStack Table, Recharts |
 | Styling | Tailwind CSS |
 | Build | Vite |
 
@@ -27,19 +30,25 @@ A modern web application for querying and visualizing project cost data from Sno
 ```
 cost-scraper/
 ├── backend/
-│   ├── main.py           # FastAPI application
-│   ├── config.py         # Configuration settings
-│   ├── database.py       # Snowflake connection
-│   ├── queries.py        # SQL queries
-│   ├── models.py         # Pydantic models
-│   └── requirements.txt  # Python dependencies
+│   ├── app/
+│   │   ├── main.py             # FastAPI application & endpoints
+│   │   ├── config.py           # Configuration settings
+│   │   └── snowflake_client.py # Snowflake connection & queries
+│   └── requirements.txt        # Python dependencies
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx       # Main application
-│   │   ├── components/   # React components
-│   │   └── api/          # API client
-│   ├── package.json      # Node dependencies
-│   └── vite.config.ts    # Vite configuration
+│   │   ├── App.tsx             # Main application
+│   │   ├── components/
+│   │   │   ├── DataTable.tsx   # Hierarchical data table with expand/collapse
+│   │   │   ├── CostCharts.tsx  # Spend analysis chart
+│   │   │   ├── FilterBar.tsx   # Query filters
+│   │   │   └── Header.tsx      # App header
+│   │   ├── utils/
+│   │   │   └── hierarchyUtils.ts # CBS hierarchy tree building
+│   │   └── api/                # API client & types
+│   ├── package.json            # Node dependencies
+│   └── vite.config.ts          # Vite configuration
+├── CLAUDE.md                   # Development guide
 └── README.md
 ```
 

@@ -99,3 +99,11 @@ export interface QueryFilters {
   districtId: string;
 }
 
+export interface HierarchicalCostDataRow extends CostDataRow {
+  id: string;
+  depth: number;
+  parentId: string | null;
+  subRows?: HierarchicalCostDataRow[];
+  isAggregated?: boolean;
+}
+

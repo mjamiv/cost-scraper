@@ -2,6 +2,7 @@ import { useState, useCallback } from 'react';
 import { Header } from './components/Header';
 import { FilterBar } from './components/FilterBar';
 import { DataTable } from './components/DataTable';
+import { CostCharts } from './components/CostCharts';
 import { fetchCostData, isStaticDeployment } from './api/costDataApi';
 import { CostDataRow, QueryFilters } from './api/types';
 
@@ -95,6 +96,8 @@ function App() {
             </div>
           </div>
         )}
+
+        <CostCharts data={data} />
 
         <DataTable data={data} isLoading={isLoading} />
         
