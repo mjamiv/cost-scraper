@@ -9,6 +9,8 @@
   --color-midnight-700: #334e68;
   --color-accent: #00d4aa;
   --color-accent-glow: rgba(0, 212, 170, 0.3);
+  --sidebar-width: 380px;
+  --header-height: 56px;
 }
 
 * {
@@ -45,7 +47,447 @@ body {
   background: var(--color-accent);
 }
 
-/* Table styles */
+/* ============================================================================
+   App Layout - Chat-first Architecture
+   ============================================================================ */
+
+.app-layout {
+  @apply min-h-screen flex flex-col;
+}
+
+/* Header */
+.app-header {
+  height: var(--header-height);
+  @apply flex items-center justify-between px-4;
+  @apply bg-midnight-900 border-b border-midnight-700;
+  @apply flex-shrink-0;
+}
+
+.header-menu-btn {
+  @apply p-2 rounded-lg;
+  @apply text-slate-400 hover:text-slate-200;
+  @apply hover:bg-midnight-700;
+  @apply transition-colors;
+}
+
+.header-logo {
+  @apply w-9 h-9 rounded-lg;
+  @apply bg-gradient-to-br from-accent to-emerald-600;
+  @apply flex items-center justify-center;
+  @apply shadow-lg;
+}
+
+.header-stat {
+  @apply flex items-baseline gap-1.5;
+}
+
+.header-stat-value {
+  @apply text-lg font-bold text-accent font-mono;
+}
+
+.header-stat-label {
+  @apply text-xs text-slate-500;
+}
+
+.demo-badge {
+  @apply px-2 py-0.5 text-xs font-medium rounded;
+  @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+}
+
+/* App Body */
+.app-body {
+  @apply flex flex-1 overflow-hidden;
+  height: calc(100vh - var(--header-height));
+}
+
+/* ============================================================================
+   Sidebar
+   ============================================================================ */
+
+.app-sidebar {
+  @apply h-full bg-midnight-900 border-r border-midnight-700;
+  @apply transition-all duration-300 ease-in-out;
+  @apply overflow-hidden flex-shrink-0;
+  width: var(--sidebar-width);
+}
+
+.app-sidebar.collapsed {
+  width: 0;
+  border-right: none;
+}
+
+.sidebar-inner {
+  width: var(--sidebar-width);
+  @apply h-full flex flex-col;
+}
+
+.sidebar-tabs {
+  @apply flex border-b border-midnight-700;
+  @apply flex-shrink-0;
+}
+
+.sidebar-tab {
+  @apply flex-1 py-3 px-2;
+  @apply flex flex-col items-center gap-1;
+  @apply text-slate-400 hover:text-slate-200;
+  @apply border-b-2 border-transparent;
+  @apply transition-colors;
+}
+
+.sidebar-tab.active {
+  @apply text-accent border-accent;
+  @apply bg-accent/5;
+}
+
+.sidebar-tab-label {
+  @apply text-xs font-medium;
+}
+
+.sidebar-content {
+  @apply flex-1 overflow-y-auto p-4;
+}
+
+/* Sidebar Filters */
+.sidebar-filters {
+  @apply space-y-4;
+}
+
+.sidebar-input {
+  @apply w-full px-3 py-2 rounded-lg;
+  @apply bg-midnight-800 border border-midnight-600;
+  @apply text-slate-200 placeholder-slate-500;
+  @apply text-sm;
+  @apply focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50;
+  @apply transition-all;
+}
+
+.sidebar-search-btn {
+  @apply w-full px-4 py-2.5 rounded-lg font-medium;
+  @apply bg-accent text-midnight-950;
+  @apply hover:bg-accent/90;
+  @apply flex items-center justify-center gap-2;
+  @apply transition-all;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+/* Sidebar Content Containers */
+.sidebar-chart-container,
+.sidebar-table-container,
+.sidebar-export-container {
+  @apply h-full overflow-auto;
+}
+
+.sidebar-empty-state {
+  @apply flex items-center justify-center h-48;
+  @apply text-slate-500 text-sm text-center;
+}
+
+/* ============================================================================
+   Main Chat Area
+   ============================================================================ */
+
+.app-main {
+  @apply flex-1 flex flex-col min-w-0;
+  @apply bg-midnight-950/50;
+}
+
+.chat-error-alert {
+  @apply mx-4 mt-4 p-4 rounded-lg;
+  @apply bg-red-500/10 border border-red-500/30;
+  @apply flex items-center gap-3;
+}
+
+/* ============================================================================
+   Chat Interface Styles
+   ============================================================================ */
+
+.chat-container {
+  @apply flex-1 flex flex-col;
+  @apply max-w-4xl mx-auto w-full;
+}
+
+.chat-header-bar {
+  @apply flex items-center justify-between px-6 py-2;
+  @apply border-b border-midnight-700/50;
+  @apply flex-shrink-0;
+}
+
+.chat-action-btn {
+  @apply p-2 rounded-lg;
+  @apply bg-midnight-800 text-slate-400;
+  @apply hover:text-slate-200 hover:bg-midnight-700;
+  @apply transition-colors;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.chat-action-btn.active {
+  @apply bg-accent/20 text-accent;
+}
+
+.chat-playing-indicator {
+  @apply px-6 py-2 bg-accent/10 border-b border-accent/30;
+  @apply flex items-center justify-between;
+}
+
+/* Messages Area */
+.chat-messages {
+  @apply flex-1 overflow-y-auto px-6 py-8;
+}
+
+/* Welcome Screen - Centered */
+.chat-welcome-centered {
+  @apply flex-1 flex flex-col items-center justify-center;
+  @apply text-center;
+  @apply min-h-[400px];
+}
+
+/* Suggestion buttons */
+.chat-suggestion {
+  @apply block w-full text-left px-4 py-3 text-sm;
+  @apply bg-midnight-800/50 hover:bg-midnight-700 rounded-lg;
+  @apply text-slate-300 hover:text-accent;
+  @apply border border-midnight-700 hover:border-accent/30;
+  @apply transition-colors;
+}
+
+/* Message bubbles */
+.chat-message {
+  @apply mb-4;
+}
+
+.chat-message-user {
+  @apply flex justify-end;
+}
+
+.chat-message-user .chat-message-content {
+  @apply bg-accent text-midnight-950;
+  @apply rounded-2xl rounded-br-sm;
+  @apply px-4 py-2.5 max-w-[80%];
+  @apply text-sm;
+}
+
+.chat-message-assistant {
+  @apply flex justify-start;
+}
+
+.chat-message-assistant .chat-message-content {
+  @apply bg-midnight-800 text-slate-200;
+  @apply rounded-2xl rounded-bl-sm;
+  @apply px-4 py-3 max-w-[90%];
+  @apply text-sm;
+}
+
+/* Input Area */
+.chat-input-area {
+  @apply flex items-center gap-3 p-4;
+  @apply border-t border-midnight-700;
+  @apply bg-midnight-900/50;
+  @apply flex-shrink-0;
+}
+
+.chat-input {
+  @apply flex-1 px-4 py-3 rounded-xl;
+  @apply bg-midnight-800 border border-midnight-600;
+  @apply text-slate-200 placeholder-slate-500;
+  @apply text-sm;
+  @apply focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/50;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.chat-send-btn {
+  @apply w-11 h-11 rounded-xl;
+  @apply bg-accent text-midnight-950;
+  @apply flex items-center justify-center;
+  @apply transition-all duration-200;
+  @apply hover:bg-accent/80;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+/* Voice recording button */
+.chat-voice-btn {
+  @apply w-11 h-11 rounded-xl;
+  @apply bg-midnight-800 text-slate-300;
+  @apply flex items-center justify-center;
+  @apply transition-all duration-200;
+  @apply hover:bg-midnight-700 hover:text-accent;
+  @apply disabled:opacity-50 disabled:cursor-not-allowed;
+}
+
+.chat-voice-btn.recording {
+  @apply bg-red-500/20 text-red-400;
+  animation: recording-pulse 1.5s infinite;
+}
+
+@keyframes recording-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(239, 68, 68, 0);
+  }
+}
+
+/* Inline Chat Charts */
+.chat-chart {
+  @apply rounded-lg overflow-hidden;
+  @apply border border-midnight-600;
+  @apply bg-midnight-900;
+}
+
+.chat-chart-header {
+  @apply px-4 py-2 text-sm font-semibold text-slate-200;
+  @apply bg-midnight-800 border-b border-midnight-600;
+}
+
+.chat-chart-body {
+  @apply p-3;
+  @apply bg-midnight-900;
+}
+
+/* Ensure recharts text is visible */
+.chat-chart .recharts-text {
+  fill: #94a3b8;
+}
+
+.chat-chart .recharts-legend-item-text {
+  color: #94a3b8 !important;
+}
+
+/* Pie chart labels */
+.chat-chart .recharts-pie-label-text {
+  fill: #cbd5e1;
+  font-size: 10px;
+}
+
+/* Typing indicator */
+.chat-typing {
+  @apply flex gap-1 py-1;
+}
+
+.chat-typing span {
+  @apply w-2 h-2 bg-slate-400 rounded-full;
+  animation: typing 1.4s infinite ease-in-out;
+}
+
+.chat-typing span:nth-child(1) { animation-delay: 0s; }
+.chat-typing span:nth-child(2) { animation-delay: 0.2s; }
+.chat-typing span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes typing {
+  0%, 60%, 100% { transform: translateY(0); }
+  30% { transform: translateY(-4px); }
+}
+
+/* ============================================================================
+   Markdown styling for chat responses
+   ============================================================================ */
+
+.chat-markdown {
+  @apply text-sm leading-relaxed;
+}
+
+.chat-markdown p {
+  @apply mb-3 last:mb-0;
+}
+
+.chat-markdown h1,
+.chat-markdown h2,
+.chat-markdown h3,
+.chat-markdown h4 {
+  @apply font-semibold text-slate-100 mt-4 mb-2 first:mt-0;
+}
+
+.chat-markdown h1 { @apply text-lg; }
+.chat-markdown h2 { @apply text-base; }
+.chat-markdown h3 { @apply text-sm font-bold; }
+
+.chat-markdown strong {
+  @apply font-semibold text-slate-100;
+}
+
+.chat-markdown em {
+  @apply italic text-slate-300;
+}
+
+.chat-markdown ul,
+.chat-markdown ol {
+  @apply pl-4 mb-3 space-y-1;
+}
+
+.chat-markdown ul {
+  @apply list-disc;
+}
+
+.chat-markdown ol {
+  @apply list-decimal;
+}
+
+.chat-markdown li {
+  @apply text-slate-300;
+}
+
+.chat-markdown li::marker {
+  @apply text-accent;
+}
+
+/* Tables */
+.chat-markdown table {
+  @apply w-full border-collapse my-3 text-xs;
+}
+
+.chat-markdown thead {
+  @apply bg-midnight-700;
+}
+
+.chat-markdown th {
+  @apply px-3 py-2 text-left font-semibold text-accent border-b border-midnight-500;
+}
+
+.chat-markdown td {
+  @apply px-3 py-2 border-b border-midnight-700 text-slate-300;
+}
+
+.chat-markdown tbody tr:hover {
+  @apply bg-midnight-700/50;
+}
+
+/* Right-align numeric columns in tables */
+.chat-markdown td:not(:first-child) {
+  @apply text-right font-mono;
+}
+
+/* Code blocks */
+.chat-markdown code {
+  @apply bg-midnight-950 text-accent px-1.5 py-0.5 rounded text-xs font-mono;
+}
+
+.chat-markdown pre {
+  @apply bg-midnight-950 rounded-lg p-3 my-3 overflow-x-auto;
+}
+
+.chat-markdown pre code {
+  @apply bg-transparent p-0;
+}
+
+/* Blockquotes for warnings/notes */
+.chat-markdown blockquote {
+  @apply border-l-4 border-amber-500 bg-amber-500/10 pl-4 py-2 my-3 text-amber-200;
+}
+
+/* Horizontal rules */
+.chat-markdown hr {
+  @apply border-midnight-600 my-4;
+}
+
+/* Links */
+.chat-markdown a {
+  @apply text-accent hover:underline;
+}
+
+/* ============================================================================
+   Table styles (for sidebar table view)
+   ============================================================================ */
+
 .data-table {
   @apply w-full border-collapse;
 }
@@ -162,3 +604,232 @@ body {
   border-left: 3px solid #8b5cf6;
 }
 
+/* Column group header row */
+.column-group-header {
+  @apply text-xs font-semibold uppercase tracking-wider text-center;
+  background: linear-gradient(180deg, #1a3a5c 0%, #153050 100%);
+}
+
+.column-group-header th {
+  @apply py-2 px-3;
+  border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+}
+
+.column-group-header .group-identification {
+  @apply text-slate-300;
+  border-left: 3px solid #64748b;
+}
+
+.column-group-header .group-budget {
+  @apply text-blue-400;
+  border-left: 3px solid #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.column-group-header .group-period {
+  @apply text-amber-400;
+  border-left: 3px solid #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.column-group-header .group-jtd {
+  @apply text-emerald-400;
+  border-left: 3px solid #10b981;
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.column-group-header .group-forecast {
+  @apply text-purple-400;
+  border-left: 3px solid #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+}
+
+/* Right-aligned numeric columns */
+.text-right {
+  text-align: right !important;
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hierarchy depth backgrounds */
+.hierarchy-depth-0 {
+  background: rgba(0, 212, 170, 0.12) !important;
+}
+
+.hierarchy-depth-1 {
+  background: rgba(0, 212, 170, 0.08) !important;
+}
+
+.hierarchy-depth-2 {
+  background: rgba(0, 212, 170, 0.04) !important;
+}
+
+.hierarchy-parent-row {
+  @apply font-semibold;
+}
+
+/* Tree connector styling */
+.tree-indent {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.tree-indent::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 10px;
+  height: 1px;
+  background: rgba(100, 116, 139, 0.4);
+}
+
+/* Variance indicators with symbols */
+.variance-favorable {
+  @apply text-emerald-400;
+}
+
+.variance-favorable::before {
+  content: '+';
+}
+
+.variance-unfavorable {
+  @apply text-red-400;
+}
+
+.variance-unfavorable::before {
+  content: '\25BC '; /* Down triangle */
+}
+
+.variance-neutral {
+  @apply text-slate-400;
+}
+
+/* KPI stat cards */
+.kpi-card {
+  @apply bg-midnight-800/60 rounded-lg p-4;
+  border-left: 4px solid;
+}
+
+.kpi-card-teal {
+  border-left-color: var(--color-accent);
+}
+
+.kpi-card-blue {
+  border-left-color: #3b82f6;
+}
+
+.kpi-card-purple {
+  border-left-color: #8b5cf6;
+}
+
+.kpi-card-amber {
+  border-left-color: #f59e0b;
+}
+
+.kpi-card-label {
+  @apply text-xs font-medium uppercase tracking-wide text-slate-400;
+}
+
+.kpi-card-value {
+  @apply text-xl font-bold text-slate-100 mt-1;
+}
+
+/* Totals footer row */
+.data-table tfoot {
+  @apply sticky bottom-0 z-10;
+}
+
+.data-table tfoot tr {
+  background: linear-gradient(180deg, #1e3a5f 0%, #162d4d 100%);
+  border-top: 2px solid var(--color-accent);
+}
+
+.data-table tfoot td {
+  @apply py-3 px-3 font-bold text-slate-100;
+  border-bottom: none;
+}
+
+/* Column visibility dropdown */
+.column-visibility-dropdown {
+  @apply relative;
+}
+
+.column-visibility-menu {
+  @apply absolute right-0 top-full mt-2 w-64 max-h-80 overflow-y-auto;
+  @apply bg-midnight-800 border border-midnight-600 rounded-lg shadow-xl z-50;
+}
+
+.column-visibility-item {
+  @apply flex items-center gap-3 px-4 py-2 hover:bg-midnight-700 cursor-pointer;
+  @apply text-sm text-slate-300;
+}
+
+.column-visibility-item input[type="checkbox"] {
+  @apply w-4 h-4 rounded border-midnight-500 bg-midnight-900;
+  accent-color: var(--color-accent);
+}
+
+/* Export panel styles */
+.export-panel {
+  @apply bg-midnight-800/60 border border-midnight-600 rounded-lg;
+}
+
+.export-panel-header {
+  @apply flex items-center justify-between px-4 py-3 border-b border-midnight-600;
+}
+
+.export-format-tabs {
+  @apply flex gap-1 bg-midnight-900/50 rounded-lg p-1;
+}
+
+.export-format-tab {
+  @apply px-4 py-1.5 text-sm font-medium rounded-md transition-colors;
+  @apply text-slate-400 hover:text-slate-200;
+}
+
+.export-format-tab.active {
+  @apply bg-midnight-700 text-accent;
+}
+
+.export-preview {
+  @apply bg-midnight-950 rounded-lg p-4 font-mono text-xs text-slate-300;
+  @apply max-h-64 overflow-auto;
+}
+
+.export-actions {
+  @apply flex gap-2;
+}
+
+/* ============================================================================
+   Responsive adjustments
+   ============================================================================ */
+
+@media (max-width: 768px) {
+  :root {
+    --sidebar-width: 100%;
+  }
+
+  .app-sidebar {
+    @apply absolute z-20 left-0 top-0;
+    height: calc(100vh - var(--header-height));
+    margin-top: var(--header-height);
+  }
+
+  .app-sidebar.collapsed {
+    @apply -translate-x-full;
+    width: 100%;
+  }
+
+  .chat-markdown table {
+    @apply text-xs;
+  }
+
+  .chat-markdown th,
+  .chat-markdown td {
+    @apply px-2 py-1.5;
+  }
+}
