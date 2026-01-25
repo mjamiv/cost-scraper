@@ -777,52 +777,37 @@ export function DataTable({ data, isLoading }: DataTableProps) {
           {/* Totals Footer */}
           <tfoot>
             <tr>
-              {/* Span for identification columns */}
-              <td colSpan={table.getVisibleLeafColumns().filter(c => {
-                const meta = c.columnDef.meta as { group?: string } | undefined;
-                return meta?.group === 'identification' || ['expander', 'FISCAL_YEAR_MONTH_NO', 'PROJECT_NUMBER', 'LEAD_DISTRICT', 'WBS_ELEMENT', 'CBS_HIERARCHY', 'WBS_DESCRIPTION'].includes(c.id);
-              }).length} className="text-accent uppercase text-sm">
-                Total
-              </td>
-              {/* Budget columns */}
-              {columnVisibility.CB_QTY !== false && <td></td>}
-              {columnVisibility.CB_AMT !== false && (
-                <td className="text-right tabular-nums">{formatCurrency(totals.CB_AMT)}</td>
-              )}
-              {columnVisibility.CB_UNIT_COST !== false && <td></td>}
-              {/* Period columns */}
-              {columnVisibility.PER_QTY !== false && <td></td>}
-              {columnVisibility.PER_PERC_COMP !== false && <td></td>}
-              {columnVisibility.PER_PF !== false && <td></td>}
-              {columnVisibility.PER_CF !== false && <td></td>}
-              {columnVisibility.PER_SPEND !== false && (
-                <td className="text-right tabular-nums">{formatCurrency(totals.PER_SPEND)}</td>
-              )}
-              {/* JTD columns */}
-              {columnVisibility.JTD_QTY !== false && <td></td>}
-              {columnVisibility.JTD_PERC_COMP !== false && <td></td>}
-              {columnVisibility.JTD_PF !== false && <td></td>}
-              {columnVisibility.JTD_CF !== false && <td></td>}
-              {columnVisibility.JTD_SPEND !== false && (
-                <td className="text-right tabular-nums">{formatCurrency(totals.JTD_SPEND)}</td>
-              )}
-              {/* Forecast columns */}
-              {columnVisibility.FORECAST_PF !== false && <td></td>}
-              {columnVisibility.FORECAST_CF !== false && <td></td>}
-              {columnVisibility.FORECAST_AMOUNT !== false && (
-                <td className="text-right tabular-nums">{formatCurrency(totals.FORECAST_AMOUNT)}</td>
-              )}
-              {columnVisibility.FORECAST_REMAINING_AMOUNT !== false && <td></td>}
-              {columnVisibility.FORECAST_CHANGE !== false && (
-                <td className={`text-right tabular-nums ${totals.FORECAST_CHANGE >= 0 ? 'variance-favorable' : 'variance-unfavorable'}`}>
-                  {totals.FORECAST_CHANGE >= 0 ? '+' : '▼ '}{formatCurrency(Math.abs(totals.FORECAST_CHANGE))}
-                </td>
-              )}
-              {columnVisibility.SL_VARIANCE !== false && (
-                <td className={`text-right tabular-nums ${totals.SL_VARIANCE >= 0 ? 'variance-favorable' : 'variance-unfavorable'}`}>
-                  {totals.SL_VARIANCE >= 0 ? '+' : '▼ '}{formatCurrency(Math.abs(totals.SL_VARIANCE))}
-                </td>
-              )}
+              {table.getVisibleLeafColumns().map((column, idx) => {
+                const colId = column.id;
+                const meta = column.columnDef.meta as { group?: string } | undefined;
+                const isIdentification = meta?.group === 'identification' ||
+                  ['expander', 'FISCAL_YEAR_MONTH_NO', 'PROJECT_NUMBER', 'LEAD_DISTRICT', 'WBS_ELEMENT', 'CBS_HIERARCHY', 'WBS_DESCRIPTION'].includes(colId);
+
+                // First identification column shows "Total"
+                if (isIdentification && idx === 0) {
+                  return <td key={colId} className="text-accent uppercase text-sm">Total</td>;
+                }
+                // Skip other identification columns
+                if (isIdentification) {
+                  return <td key={colId}></td>;
+                }
+
+                // Show totals for specific columns
+                const totalValue = totals[colId as keyof typeof totals];
+                if (totalValue !== undefined) {
+                  if (colId === 'FORECAST_CHANGE' || colId === 'SL_VARIANCE') {
+                    const isPositive = totalValue >= 0;
+                    return (
+                      <td key={colId} className={`text-right tabular-nums ${isPositive ? 'variance-favorable' : 'variance-unfavorable'}`}>
+                        {isPositive ? '+' : '▼ '}{formatCurrency(Math.abs(totalValue))}
+                      </td>
+                    );
+                  }
+                  return <td key={colId} className="text-right tabular-nums">{formatCurrency(totalValue)}</td>;
+                }
+
+                return <td key={colId}></td>;
+              })}
             </tr>
           </tfoot>
         </table>
