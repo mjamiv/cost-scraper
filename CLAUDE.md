@@ -106,19 +106,34 @@ The frontend supports a demo mode with mock data when deployed to GitHub Pages. 
 
 ### Hierarchical DataTable
 - CBS_HIERARCHY based expand/collapse tree structure
-- Aggregated totals for parent nodes
+- Aggregated totals for parent nodes (always recalculated from children)
 - Visual indentation by depth level
-- "Expand All" / "Collapse All" controls
+- Compact icon-only controls for expand/collapse, columns, pagination
 
 ### Spend Analysis Chart
-- Financial report-style design (white background, clean typography)
-- Bar chart for monthly/period spend (left Y-axis)
-- Line chart for cumulative spend (right Y-axis)
+- Bar chart for monthly/period spend (left Y-axis, gold)
+- Line chart for cumulative spend (right Y-axis, purple)
+- **Earned Value line** (green dashed) = % Complete × Budget
 - Date range slider to filter time periods
-- Summary statistics: Total Spend, Avg Monthly Spend, # Periods
+- KPI cards: Total Spend, Avg Monthly, Earned Value, PF, CF, Periods
+
+### AI Chat Interface
+- Natural language queries about cost data
+- Streaming responses with markdown table rendering
+- Voice input/output support
+- Inline chart generation (`/chart spend`, `/chart variance`, etc.)
+- Executive summary and variance analysis
 
 ### Data Processing Notes
-- **Snowflake returns numeric values as strings** - All formatting functions in the frontend (formatNumber, formatCurrency, formatPercent, formatFactor) must parse string values with `parseFloat()` before calling methods like `.toFixed()`. This applies to DataTable.tsx, CostCharts.tsx, and any component displaying Snowflake data.
-- Top-level CBS rows (≤1 dot in hierarchy) are used for chart aggregation
+- **Snowflake returns numeric values as strings** - All formatting functions must parse with `parseFloat()` before calling `.toFixed()`. This applies to DataTable.tsx, CostCharts.tsx, ChatCharts.tsx, and any component displaying Snowflake data.
+- **ROOT-level rows only** - For aggregation (charts, chat context), only rows with **empty CBS_HIERARCHY** are used. These contain project totals; child rows (CBS "1", "2", etc.) are already summed into the root.
+- **Current month excluded** - Reporting automatically excludes the current month (typically incomplete data). See `excludeCurrentMonth()` in `llmDataFormatter.ts`.
 - Period spend derived from PER_SPEND or JTD_SPEND differences
 - PF (Performance Factor) and CF (Cost Factor): values > 1.0 are unfavorable (behind schedule / over budget)
+- Earned Value = % Complete × Current Budget (CB_AMT)
+
+### Chat Response Formatting
+- System prompt enforces structured responses with tables
+- `preprocessMarkdown()` handles inline tables and malformed markdown
+- `getTextContent()` helper extracts text from React children safely
+- Safety filter removes any `[object Object]` artifacts

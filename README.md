@@ -8,12 +8,15 @@ A modern web application for querying and visualizing project cost data from Sno
 
 ## Features
 
+- 🤖 **AI Chat Interface** - Natural language queries about cost data with GPT-5.2
 - 📊 **Interactive Data Table** - Sort, filter, and paginate through cost data
 - 🌳 **Hierarchical View** - Expand/collapse CBS hierarchy levels with aggregated totals
-- 📈 **Spend Analysis Chart** - Financial report-style chart with monthly bars and cumulative line
+- 📈 **Spend Analysis Chart** - Monthly spend bars, cumulative line, and Earned Value curve
+- 💰 **Earned Value Analysis** - Visual comparison of actual spend vs earned value (% Complete × Budget)
 - 🎚️ **Date Range Filter** - Slider controls to focus on specific time periods
-- 🔍 **Flexible Querying** - Filter by project numbers, fiscal periods, and districts
-- 📋 **Comprehensive Metrics** - View budget, period, JTD, and forecast data
+- 🔍 **Flexible Querying** - Filter by project numbers and fiscal periods
+- 📋 **Comprehensive Metrics** - Budget, period, JTD, forecast, PF, CF data
+- 🎤 **Voice Input/Output** - Speak questions and hear responses
 - ⚡ **Fast & Responsive** - Built with FastAPI and React for optimal performance
 
 ## Tech Stack
@@ -31,20 +34,23 @@ A modern web application for querying and visualizing project cost data from Sno
 cost-scraper/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py             # FastAPI application & endpoints
+│   │   ├── main.py             # FastAPI application & endpoints (incl. chat, voice)
 │   │   ├── config.py           # Configuration settings
 │   │   └── snowflake_client.py # Snowflake connection & queries
 │   └── requirements.txt        # Python dependencies
 ├── frontend/
 │   ├── src/
-│   │   ├── App.tsx             # Main application
+│   │   ├── App.tsx             # Main application layout
 │   │   ├── components/
 │   │   │   ├── DataTable.tsx   # Hierarchical data table with expand/collapse
-│   │   │   ├── CostCharts.tsx  # Spend analysis chart
-│   │   │   ├── FilterBar.tsx   # Query filters
-│   │   │   └── Header.tsx      # App header
+│   │   │   ├── CostCharts.tsx  # Main spend analysis chart with Earned Value
+│   │   │   ├── ChatCharts.tsx  # Inline charts for chat responses
+│   │   │   ├── ChatInterface.tsx # AI chat with markdown rendering
+│   │   │   ├── SidebarFilters.tsx # Query filters panel
+│   │   │   └── RightPanel.tsx  # Chart/Table/Export panel
 │   │   ├── utils/
-│   │   │   └── hierarchyUtils.ts # CBS hierarchy tree building
+│   │   │   ├── hierarchyUtils.ts  # CBS hierarchy tree building
+│   │   │   └── llmDataFormatter.ts # Data context for AI chat
 │   │   └── api/                # API client & types
 │   ├── package.json            # Node dependencies
 │   └── vite.config.ts          # Vite configuration
@@ -78,15 +84,20 @@ cost-scraper/
    pip install -r requirements.txt
    ```
 
-4. Create a `.env` file with your Snowflake credentials:
+4. Create a `.env` file with your credentials:
    ```env
-   SNOWFLAKE_ACCOUNT=your_account
-   SNOWFLAKE_USER=your_username
-   SNOWFLAKE_PASSWORD=your_password
-   SNOWFLAKE_WAREHOUSE=your_warehouse
-   SNOWFLAKE_DATABASE=PROD_ENT_CONSUMPTION
-   SNOWFLAKE_SCHEMA=SEM_VW
-   SNOWFLAKE_ROLE=your_role
+   # Snowflake (include full region suffix)
+   SF_ACCOUNT=your_account.region.cloud
+   SF_USER=your_username
+   SF_AUTHENTICATOR=externalbrowser  # or use SF_PASSWORD
+   SF_WAREHOUSE=your_warehouse
+   SF_ROLE=your_role
+
+   # OpenAI (for AI chat features)
+   OPENAI_API_KEY=your_openai_key
+
+   # CORS
+   ALLOWED_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
    ```
 
 5. Start the backend server:
@@ -122,11 +133,15 @@ cost-scraper/
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
-| `/` | GET | Health check |
+| `/health` | GET | Health check |
 | `/api/cost-data` | GET | Retrieve cost data with filters |
 | `/api/districts` | GET | List all districts |
-| `/api/projects` | GET | List projects (optional district filter) |
+| `/api/projects` | GET | List projects |
 | `/api/filters` | GET | Get available filter options |
+| `/api/chat` | POST | AI chat (single response) |
+| `/api/chat/stream` | POST | AI chat (streaming response) |
+| `/api/voice/transcribe` | POST | Speech-to-text (Whisper) |
+| `/api/voice/synthesize` | POST | Text-to-speech |
 
 ### Query Parameters for `/api/cost-data`
 
