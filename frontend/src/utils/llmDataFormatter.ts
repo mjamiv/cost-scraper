@@ -51,6 +51,10 @@ export interface LLMCostSummary {
     cumulativeSpend: number;
     manhours: number;
     cumulativeManhours: number;
+    weeksInMonth: number;
+    monthlyFTE: number;
+    weeklyFTE: number;
+    avgRate: number;
   }>;
   topVarianceItems: Array<{
     project: string;
@@ -68,6 +72,40 @@ function formatPeriodLabel(period: string): string {
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const monthIndex = parseInt(month, 10) - 1;
   return `${monthNames[monthIndex]} ${year}`;
+}
+
+/**
+ * Get weeks in month based on 4-4-5 financial calendar
+ * Pattern: Month 1 of quarter = 4 weeks, Month 2 = 4 weeks, Month 3 = 5 weeks
+ * Q1: Jan(4), Feb(4), Mar(5)
+ * Q2: Apr(4), May(4), Jun(5)
+ * Q3: Jul(4), Aug(4), Sep(5)
+ * Q4: Oct(4), Nov(4), Dec(5)
+ */
+function getWeeksInMonth(period: string): number {
+  if (!period || period.length !== 6) return 4;
+  const month = parseInt(period.substring(4, 6), 10);
+  // Months 3, 6, 9, 12 have 5 weeks (end of quarter)
+  return (month % 3 === 0) ? 5 : 4;
+}
+
+/**
+ * Calculate FTE metrics for a period
+ */
+function calculateFTEMetrics(manhours: number, spend: number, period: string): {
+  weeksInMonth: number;
+  monthlyFTE: number;
+  weeklyFTE: number;
+  avgRate: number;
+} {
+  const weeksInMonth = getWeeksInMonth(period);
+  const hoursInMonth = 40 * weeksInMonth;
+
+  const monthlyFTE = manhours > 0 ? manhours / hoursInMonth : 0;
+  const weeklyFTE = manhours > 0 ? manhours / weeksInMonth / 40 : 0;
+  const avgRate = manhours > 0 ? spend / manhours : 0;
+
+  return { weeksInMonth, monthlyFTE, weeklyFTE, avgRate };
 }
 
 function formatCurrency(value: number): string {
@@ -187,6 +225,7 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
     const data = periodMap.get(period) || { spend: 0, manhours: 0 };
     cumulativeSpend += data.spend;
     cumulativeMH += data.manhours;
+    const fteMetrics = calculateFTEMetrics(data.manhours, data.spend, period);
     return {
       period,
       periodLabel: formatPeriodLabel(period),
@@ -194,6 +233,10 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
       cumulativeSpend,
       manhours: data.manhours,
       cumulativeManhours: cumulativeMH,
+      weeksInMonth: fteMetrics.weeksInMonth,
+      monthlyFTE: fteMetrics.monthlyFTE,
+      weeklyFTE: fteMetrics.weeklyFTE,
+      avgRate: fteMetrics.avgRate,
     };
   });
 
@@ -281,16 +324,29 @@ export function generateMarkdownSummary(data: CostDataRow[]): string {
   });
 
   lines.push('');
-  lines.push('## Spending by Period');
+  lines.push('## Spending & FTE by Period');
   lines.push('');
-  lines.push('| Period | Spend | Cumulative | Manhours | Cumulative MH |');
-  lines.push('|--------|-------|------------|----------|---------------|');
+  lines.push('*FTE calculated using 4-4-5 financial calendar (40 hrs/week)*');
+  lines.push('');
+  lines.push('| Period | Spend | Manhours | Monthly FTE | Weekly FTE | Avg Rate ($/hr) |');
+  lines.push('|--------|-------|----------|-------------|------------|-----------------|');
 
   summary.byPeriod.forEach(period => {
     lines.push(
-      `| ${period.periodLabel} | ${formatCurrency(period.spend)} | ${formatCurrency(period.cumulativeSpend)} | ${formatNumber(period.manhours)} | ${formatNumber(period.cumulativeManhours)} |`
+      `| ${period.periodLabel} | ${formatCurrency(period.spend)} | ${formatNumber(period.manhours)} | ${period.monthlyFTE.toFixed(1)} | ${period.weeklyFTE.toFixed(1)} | $${period.avgRate.toFixed(2)} |`
     );
   });
+
+  // Add period totals/averages
+  if (summary.byPeriod.length > 0) {
+    const totalSpend = summary.byPeriod.reduce((sum, p) => sum + p.spend, 0);
+    const totalMH = summary.byPeriod.reduce((sum, p) => sum + p.manhours, 0);
+    const avgMonthlyFTE = summary.byPeriod.reduce((sum, p) => sum + p.monthlyFTE, 0) / summary.byPeriod.length;
+    const avgWeeklyFTE = summary.byPeriod.reduce((sum, p) => sum + p.weeklyFTE, 0) / summary.byPeriod.length;
+    const overallAvgRate = totalMH > 0 ? totalSpend / totalMH : 0;
+
+    lines.push(`| **TOTAL/AVG** | ${formatCurrency(totalSpend)} | ${formatNumber(totalMH)} | ${avgMonthlyFTE.toFixed(1)} | ${avgWeeklyFTE.toFixed(1)} | $${overallAvgRate.toFixed(2)} |`);
+  }
 
   if (summary.topVarianceItems.length > 0) {
     lines.push('');
