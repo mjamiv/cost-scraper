@@ -17,15 +17,18 @@ interface VoiceChatPanelProps {
   onClose: () => void;
 }
 
-type VoiceOption = 'alloy' | 'nova' | 'echo' | 'fable' | 'onyx' | 'shimmer';
+// OpenAI Realtime API supported voices (as of Jan 2025)
+type VoiceOption = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
 
 const VOICE_OPTIONS: { value: VoiceOption; label: string }[] = [
   { value: 'alloy', label: 'Alloy (Neutral)' },
-  { value: 'nova', label: 'Nova (Female)' },
-  { value: 'echo', label: 'Echo (Male)' },
-  { value: 'fable', label: 'Fable (British)' },
-  { value: 'onyx', label: 'Onyx (Deep)' },
-  { value: 'shimmer', label: 'Shimmer (Soft)' },
+  { value: 'ash', label: 'Ash (Confident)' },
+  { value: 'ballad', label: 'Ballad (Warm)' },
+  { value: 'coral', label: 'Coral (Clear)' },
+  { value: 'echo', label: 'Echo (Balanced)' },
+  { value: 'sage', label: 'Sage (Calm)' },
+  { value: 'shimmer', label: 'Shimmer (Bright)' },
+  { value: 'verse', label: 'Verse (Dynamic)' },
 ];
 
 function getStatusText(state: VoiceState, isMuted: boolean): string {

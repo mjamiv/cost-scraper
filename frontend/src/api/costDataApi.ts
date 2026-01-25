@@ -232,8 +232,9 @@ export async function synthesizeSpeech(text: string, voice: string = 'alloy'): P
 }
 
 // Realtime Voice API types
+// OpenAI Realtime API supported voices (as of Jan 2025)
 export interface RealtimeSessionConfig {
-  voice?: 'alloy' | 'nova' | 'echo' | 'fable' | 'onyx' | 'shimmer';
+  voice?: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
   temperature?: number;
 }
 
