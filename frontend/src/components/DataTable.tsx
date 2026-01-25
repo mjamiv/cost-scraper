@@ -42,27 +42,33 @@ const DEFAULT_HIDDEN_COLUMNS: Record<string, boolean> = {
   FORECAST_REMAINING_CF: false,
 };
 
-function formatNumber(value: number | null, decimals = 2): string {
-  if (value === null || value === undefined) return '—';
+function formatNumber(value: number | string | null, decimals = 2): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const numValue = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(numValue)) return '—';
   return new Intl.NumberFormat('en-US', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
-  }).format(value);
+  }).format(numValue);
 }
 
-function formatCurrency(value: number | null): string {
-  if (value === null || value === undefined) return '—';
+function formatCurrency(value: number | string | null): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const numValue = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(numValue)) return '—';
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: 'USD',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(value);
+  }).format(numValue);
 }
 
-function formatPercent(value: number | null): string {
-  if (value === null || value === undefined) return '—';
-  return `${(value * 100).toFixed(1)}%`;
+function formatPercent(value: number | string | null): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const numValue = typeof value === 'string' ? parseFloat(value) : value;
+  if (isNaN(numValue)) return '—';
+  return `${(numValue * 100).toFixed(1)}%`;
 }
 
 // Variance formatting with symbols for accessibility
@@ -83,17 +89,24 @@ function formatVariance(value: number | null): { text: string; className: string
 }
 
 // PF/CF formatting - values > 1.0 are unfavorable (over budget/behind schedule)
-function formatFactor(value: number | null): { text: string; className: string } {
-  if (value === null || value === undefined) {
+function formatFactor(value: number | string | null): { text: string; className: string } {
+  if (value === null || value === undefined || value === '') {
     return { text: '—', className: 'text-slate-500' };
   }
 
-  const formatted = value.toFixed(2);
+  // Parse string values from Snowflake
+  const numValue = typeof value === 'string' ? parseFloat(value) : value;
 
-  if (value > 1.0) {
+  if (isNaN(numValue)) {
+    return { text: '—', className: 'text-slate-500' };
+  }
+
+  const formatted = numValue.toFixed(2);
+
+  if (numValue > 1.0) {
     return { text: formatted, className: 'text-red-400' };
   }
-  if (value < 1.0) {
+  if (numValue < 1.0) {
     return { text: formatted, className: 'text-emerald-400' };
   }
   return { text: formatted, className: 'text-slate-300' };
