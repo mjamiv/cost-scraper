@@ -21,21 +21,24 @@ function preprocessMarkdown(content: string): string {
   // Match any non-newline char followed by optional newline and then a header
   result = result.replace(/([^\n])\n?(#{1,6}\s)/g, '$1\n\n$2');
 
-  // 3. Add blank lines after headers if followed by non-header content
+  // 3. Split headers that run directly into table pipes (e.g., "### Title| Col1 | Col2")
+  result = result.replace(/(#{1,6}\s[^|\n]+)\|/g, '$1\n\n|');
+
+  // 4. Add blank lines after headers if followed by non-header content
   result = result.replace(/(#{1,6}\s[^\n]+)\n([^\n#\s])/g, '$1\n\n$2');
 
-  // 4. Add blank lines before bullet lists (ensure list items are properly separated)
+  // 5. Add blank lines before bullet lists (ensure list items are properly separated)
   result = result.replace(/([^\n\-\*\s])\n([-\*]\s)/g, '$1\n\n$2');
 
-  // 5. Add blank lines before numbered lists
+  // 6. Add blank lines before numbered lists
   result = result.replace(/([^\n\d\s])\n(\d+\.\s)/g, '$1\n\n$2');
 
-  // 6. Fix inline tables where || indicates row breaks
+  // 7. Fix inline tables where || indicates row breaks
   if (result.includes('||') && result.includes('|') && (result.match(/\|/g) || []).length >= 6) {
     result = result.replace(/\|\|/g, '|\n|');
   }
 
-  // 7. Process tables to ensure proper formatting
+  // 8. Process tables to ensure proper formatting
   const lines = result.split('\n');
   const processed: string[] = [];
   let inTable = false;
@@ -96,12 +99,12 @@ function preprocessMarkdown(content: string): string {
     processed.push('');
   }
 
-  // 8. Clean up artifacts
+  // 9. Clean up artifacts
   result = processed.join('\n');
   result = result.replace(/,?\s*\[object Object\],?\s*/g, ' ');
   result = result.replace(/\[object Object\]/g, '');
 
-  // 9. Normalize multiple blank lines to max 2
+  // 10. Normalize multiple blank lines to max 2
   result = result.replace(/\n{3,}/g, '\n\n');
 
   return result;
