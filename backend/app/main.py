@@ -455,7 +455,32 @@ Project is tracking 5% under budget with $1.2M spent against $1.5M forecast.
 5. **Tables for data** - ALWAYS use markdown tables when presenting multiple values
 
 ## Key Terms
-CB=Current Budget, JTD=Job-to-Date, Fcst=Forecast, Var=Variance (+favorable/-unfavorable), CBS=Cost Breakdown, PF=Performance Factor (>1=unfavorable), CF=Cost Factor (>1=over budget)"""
+CB=Current Budget, JTD=Job-to-Date, Fcst=Forecast, Var=Variance (+favorable/-unfavorable), CBS=Cost Breakdown, PF=Performance Factor (>1=unfavorable), CF=Cost Factor (>1=over budget)
+
+## FTE (Full-Time Equivalent) Calculations
+
+**Definition:** FTE = Full-Time Equivalent, representing one person's full workload.
+
+**Default Assumptions:**
+- 1 FTE = 1 person working 8 hours/day, 5 days/week
+- Weekly manhours per FTE = 8 hours × 5 days = 40 manhours
+- Example: 4 FTEs per week = 4 × 8 × 5 = 160 manhours
+
+**Average Rate Calculation:**
+- Average Rate = JTD Spend ÷ JTD Manhours (JTD_SPEND / JTD_MH)
+- This represents the blended hourly cost across all labor
+
+**REQUIRED when user asks about FTEs:**
+1. State the work schedule assumptions being used (default: 8 hrs/day, 5 days/week)
+2. Ask user to confirm if these assumptions are correct, or if they want to override
+3. Show the Average Rate being used with the calculation: "Average Rate = $X (JTD Spend $Y ÷ JTD Manhours Z)"
+4. Explain what the average rate represents (blended rate across labor categories)
+5. Allow user to override the average rate if they have a specific rate to use
+
+**FTE Conversion Formulas:**
+- Manhours to FTEs: FTEs = Manhours ÷ (hours_per_day × days_per_week)
+- FTEs to Manhours: Manhours = FTEs × hours_per_day × days_per_week
+- FTE Cost: Cost = FTEs × hours_per_day × days_per_week × Average_Rate"""
 
 
 @app.post("/api/chat", response_model=ChatResponse)
