@@ -188,3 +188,25 @@ The "Spending & FTE by Period" table in AI context shows:
 - **Copy button**: Appears on hover for assistant messages
 - **Loading skeleton**: Shimmer animation during streaming
 - **Slide-in animation**: Messages animate when appearing
+- **Horizontal suggestion buttons**: Quick-action buttons arranged side-by-side
+
+### Layout Behavior
+- **Fixed Header**: App header stays pinned at top when scrolling chat
+- **Fixed Sidebar**: Sidebar filters remain in place during chat scroll
+- **Contained Scrolling**: Only chat messages scroll; body overflow is hidden
+- **Sticky positioning**: Header uses `position: sticky; top: 0; z-index: 30`
+
+### Sidebar Features
+- **Project Info Display**: When data is loaded, shows project number and description
+- **Connection Status**: Green pulse indicator shows connected state
+- **Record Count**: Displays number of loaded records
+- **Query Filters**: Project numbers (textarea), Start month input
+- **Demo Badge**: Shows when running in demo mode
+
+### Voice Chat Features
+- **Voice Chat Panel**: Fullscreen modal with animated orb visualization
+- **OpenAI Realtime API**: Real-time streaming voice conversations
+- **Custom Voice Wizard**: Create and manage custom voice clones
+- **Audio Recorder Hook**: `useAudioRecorder.ts` for microphone input
+- **Voice Management**: `useCustomVoices.ts` for voice CRUD operations
+- **VAD (Voice Activity Detection)**: Automatic speech detection

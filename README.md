@@ -19,7 +19,11 @@ A modern web application for querying and visualizing project cost data from Sno
 - 🔍 **Flexible Querying** - Filter by project numbers and fiscal periods
 - 📋 **Comprehensive Metrics** - Budget, period, JTD, forecast, PF, CF, manhours data
 - 🎤 **Voice Input/Output** - Speak questions and hear responses
+- 🗣️ **Real-time Voice Chat** - Streaming voice conversations with OpenAI Realtime API
+- 🎭 **Custom Voice Cloning** - Create personalized AI voices with the Voice Wizard
 - 👤 **Professional Chat UI** - Avatars, timestamps, copy buttons, loading animations
+- 📌 **Fixed Layout** - Header and sidebar stay pinned while scrolling chat
+- 📋 **Project Info Display** - Sidebar shows loaded project names and numbers
 - ⚡ **Fast & Responsive** - Built with FastAPI and React for optimal performance
 
 ## Tech Stack
@@ -37,7 +41,7 @@ A modern web application for querying and visualizing project cost data from Sno
 cost-scraper/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py             # FastAPI application & endpoints (incl. chat, voice)
+│   │   ├── main.py             # FastAPI application & endpoints (incl. chat, voice, realtime)
 │   │   ├── config.py           # Configuration settings
 │   │   └── snowflake_client.py # Snowflake connection & queries
 │   └── requirements.txt        # Python dependencies
@@ -49,8 +53,15 @@ cost-scraper/
 │   │   │   ├── CostCharts.tsx  # Main spend analysis chart with Earned Value
 │   │   │   ├── ChatCharts.tsx  # Inline charts for chat responses
 │   │   │   ├── ChatInterface.tsx # AI chat with markdown rendering
-│   │   │   ├── SidebarFilters.tsx # Query filters panel
-│   │   │   └── RightPanel.tsx  # Chart/Table/Export panel
+│   │   │   ├── SidebarFilters.tsx # Query filters panel with project info
+│   │   │   ├── RightPanel.tsx  # Chart/Table/Export panel
+│   │   │   ├── VoiceChatPanel.tsx # Real-time voice chat modal
+│   │   │   └── CustomVoiceWizard.tsx # Voice cloning wizard
+│   │   ├── hooks/
+│   │   │   ├── useAudioRecorder.ts # Microphone recording hook
+│   │   │   └── useCustomVoices.ts  # Voice management hook
+│   │   ├── styles/
+│   │   │   └── voice-chat.css  # Voice chat animations & styling
 │   │   ├── utils/
 │   │   │   ├── hierarchyUtils.ts  # CBS hierarchy tree building
 │   │   │   └── llmDataFormatter.ts # Data context for AI chat
@@ -145,6 +156,10 @@ cost-scraper/
 | `/api/chat/stream` | POST | AI chat (streaming response) |
 | `/api/voice/transcribe` | POST | Speech-to-text (Whisper) |
 | `/api/voice/synthesize` | POST | Text-to-speech |
+| `/api/realtime/session` | POST | Create OpenAI Realtime session |
+| `/api/voices` | GET | List custom voices |
+| `/api/voices` | POST | Create custom voice |
+| `/api/voices/{id}` | DELETE | Delete custom voice |
 
 ### Query Parameters for `/api/cost-data`
 
