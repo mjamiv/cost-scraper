@@ -711,7 +711,8 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
               <div className="no-data-notice">
                 <p className="font-medium mb-1">No data loaded</p>
                 <p className="opacity-70">
-                  Open the sidebar filters or type <code>/show filters</code> to load project data.
+                  Open the sidebar filters<br />
+                  or type <code>/show filters</code> to load project data.
                 </p>
               </div>
             )}
