@@ -69,31 +69,43 @@ function TableAwareParagraph({ children }: { children?: ReactNode }) {
   const content = children?.toString() || '';
 
   if (content.includes('|') && content.split('|').length >= 4) {
-    const rows = content.split(/\|\||\n/).filter(r => r.trim());
-    if (rows.length >= 2) {
-      const tableRows = rows.map(row => {
-        return row.split('|').filter(cell => cell.trim()).map(cell => cell.trim());
-      });
+    const rows = content.split(/\n|\|\|/).filter(r => r.trim() && r.includes('|'));
 
-      if (tableRows.length > 0 && tableRows[0].length >= 2) {
+    if (rows.length >= 2) {
+      const tableRows = rows
+        .filter(row => !row.match(/^[\s\-:|]+$/))
+        .map(row => {
+          const cells = row.split('|');
+          if (cells[0]?.trim() === '') cells.shift();
+          if (cells[cells.length - 1]?.trim() === '') cells.pop();
+          return cells.map(cell => cell.trim());
+        })
+        .filter(row => row.length >= 2 && row.some(cell => cell));
+
+      if (tableRows.length >= 1) {
+        const headerRow = tableRows[0];
+        const bodyRows = tableRows.slice(1);
+
         return (
           <table>
             <thead>
               <tr>
-                {tableRows[0].map((cell, i) => (
-                  <th key={i}>{cell}</th>
+                {headerRow.map((cell, i) => (
+                  <th key={i}>{cell || '\u00A0'}</th>
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {tableRows.slice(1).map((row, rowIdx) => (
-                <tr key={rowIdx}>
-                  {row.map((cell, cellIdx) => (
-                    <td key={cellIdx}>{cell}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
+            {bodyRows.length > 0 && (
+              <tbody>
+                {bodyRows.map((row, rowIdx) => (
+                  <tr key={rowIdx}>
+                    {row.map((cell, cellIdx) => (
+                      <td key={cellIdx}>{cell || '\u00A0'}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
         );
       }

@@ -52,7 +52,11 @@ export function RightPanel({ isOpen, activeTab, onTabChange, onClose, children }
             {TABS.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => onTabChange(tab.id)}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault();
+                  onTabChange(tab.id);
+                }}
                 className={`right-panel-tab ${activeTab === tab.id ? 'active' : ''}`}
               >
                 {tab.icon}

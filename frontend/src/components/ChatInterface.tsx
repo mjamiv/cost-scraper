@@ -81,34 +81,47 @@ function TableAwareParagraph({ children }: { children?: ReactNode }) {
 
   // If the paragraph contains pipe characters that look like a table
   if (content.includes('|') && content.split('|').length >= 4) {
-    // Split by || or | and try to render as a simple table
-    const rows = content.split(/\|\||\n/).filter(r => r.trim());
+    // Split by newlines or || to get rows
+    const rows = content.split(/\n|\|\|/).filter(r => r.trim() && r.includes('|'));
 
     if (rows.length >= 2) {
-      // Parse as table
-      const tableRows = rows.map(row => {
-        return row.split('|').filter(cell => cell.trim()).map(cell => cell.trim());
-      });
+      // Parse as table - keep all cells including empty ones for proper alignment
+      const tableRows = rows
+        .filter(row => !row.match(/^[\s\-:|]+$/)) // Skip separator rows
+        .map(row => {
+          // Split by | and handle edge cases
+          const cells = row.split('|');
+          // Remove first and last if they're empty (from leading/trailing |)
+          if (cells[0]?.trim() === '') cells.shift();
+          if (cells[cells.length - 1]?.trim() === '') cells.pop();
+          return cells.map(cell => cell.trim());
+        })
+        .filter(row => row.length >= 2 && row.some(cell => cell)); // Must have at least 2 cells with content
 
-      if (tableRows.length > 0 && tableRows[0].length >= 2) {
+      if (tableRows.length >= 1) {
+        const headerRow = tableRows[0];
+        const bodyRows = tableRows.slice(1);
+
         return (
           <table>
             <thead>
               <tr>
-                {tableRows[0].map((cell, i) => (
-                  <th key={i}>{cell}</th>
+                {headerRow.map((cell, i) => (
+                  <th key={i}>{cell || '\u00A0'}</th>
                 ))}
               </tr>
             </thead>
-            <tbody>
-              {tableRows.slice(1).map((row, rowIdx) => (
-                <tr key={rowIdx}>
-                  {row.map((cell, cellIdx) => (
-                    <td key={cellIdx}>{cell}</td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
+            {bodyRows.length > 0 && (
+              <tbody>
+                {bodyRows.map((row, rowIdx) => (
+                  <tr key={rowIdx}>
+                    {row.map((cell, cellIdx) => (
+                      <td key={cellIdx}>{cell || '\u00A0'}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            )}
           </table>
         );
       }
@@ -540,7 +553,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
             <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Northstar" className="w-20 h-20 mx-auto mb-6" />
             <h2 className="text-xl font-semibold text-white mb-2">Chat with Cost</h2>
             <p className="text-neutral-400 mb-6 max-w-md">
-              Your cost analysis assistant. Ask about budgets, variances, forecasts, and spending trends.
+              Your cost analysis assistant.
             </p>
 
             {data.length > 0 ? (
