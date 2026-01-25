@@ -118,6 +118,7 @@ The frontend supports a demo mode with mock data when deployed to GitHub Pages. 
 - Summary statistics: Total Spend, Avg Monthly Spend, # Periods
 
 ### Data Processing Notes
-- Snowflake returns numeric values as strings - use `parseFloat()` when aggregating
+- **Snowflake returns numeric values as strings** - All formatting functions in the frontend (formatNumber, formatCurrency, formatPercent, formatFactor) must parse string values with `parseFloat()` before calling methods like `.toFixed()`. This applies to DataTable.tsx, CostCharts.tsx, and any component displaying Snowflake data.
 - Top-level CBS rows (≤1 dot in hierarchy) are used for chart aggregation
 - Period spend derived from PER_SPEND or JTD_SPEND differences
+- PF (Performance Factor) and CF (Cost Factor): values > 1.0 are unfavorable (behind schedule / over budget)
