@@ -123,6 +123,21 @@ The frontend supports a demo mode with mock data when deployed to GitHub Pages. 
 - Voice input/output support
 - Inline chart generation (`/chart spend`, `/chart variance`, etc.)
 - Executive summary and variance analysis
+- **FTE calculations** with configurable work schedules
+
+### FTE (Full-Time Equivalent) Domain Knowledge
+The chat system prompt includes FTE calculation logic:
+- **Definition**: 1 FTE = 1 person at 8 hrs/day, 5 days/week = 40 hrs/week
+- **Average Rate**: JTD Spend ÷ JTD Manhours (blended hourly cost)
+- **Conversions**:
+  - Manhours to FTEs: `FTEs = Manhours ÷ (hours_per_day × days_per_week)`
+  - FTEs to Manhours: `Manhours = FTEs × hours_per_day × days_per_week`
+  - FTE Cost: `Cost = FTEs × hours_per_day × days_per_week × Average_Rate`
+- **User Confirmation Required**: When user asks about FTEs, chatbot must:
+  1. State work schedule assumptions (default: 8 hrs/day, 5 days/week)
+  2. Ask user to confirm or override assumptions
+  3. Show Average Rate with calculation justification
+  4. Allow user to override average rate if needed
 
 ### Data Processing Notes
 - **Snowflake returns numeric values as strings** - All formatting functions must parse with `parseFloat()` before calling `.toFixed()`. This applies to DataTable.tsx, CostCharts.tsx, ChatCharts.tsx, and any component displaying Snowflake data.

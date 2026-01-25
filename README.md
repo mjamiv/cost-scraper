@@ -9,6 +9,7 @@ A modern web application for querying and visualizing project cost data from Sno
 ## Features
 
 - 🤖 **AI Chat Interface** - Natural language queries about cost data with GPT-5.2
+- 📐 **FTE Calculations** - Full-Time Equivalent conversions with configurable work schedules
 - 📊 **Interactive Data Table** - Sort, filter, and paginate through cost data
 - 🌳 **Hierarchical View** - Expand/collapse CBS hierarchy levels with aggregated totals
 - 📈 **Spend Analysis Chart** - Monthly spend bars, cumulative line, and Earned Value curve
@@ -164,6 +165,13 @@ cost-scraper/
 
 ### Job-to-Date (JTD)
 - Quantity, % Complete, Manhours, Spend, Unit Cost
+
+### FTE (Full-Time Equivalent)
+The AI chat understands FTE calculations:
+- **Definition**: 1 FTE = 1 person working 8 hours/day, 5 days/week (40 hrs/week)
+- **Average Rate**: Calculated as JTD Spend ÷ JTD Manhours
+- **Conversions**: Manhours ↔ FTEs, FTE cost estimates
+- When asking about FTEs, the chatbot will confirm work schedule assumptions and show the average rate calculation
 
 ### Forecast
 - Remaining Quantity, MHF, Manhours, Amount, Change, SL Variance
