@@ -18,10 +18,6 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading }:
     onFilterChange({ ...filters, startMonth: e.target.value });
   };
 
-  const handleDistrictChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    onFilterChange({ ...filters, districtId: e.target.value });
-  };
-
   const handleKeyPress = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       onSearch();
@@ -52,7 +48,7 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading }:
       </div>
 
       {/* Start Month */}
-      <div className="mb-4">
+      <div className="mb-6">
         <label className="block text-sm font-medium text-slate-400 mb-2">
           Start Month
           <span className="text-slate-500 text-xs ml-1">(YYYYMM)</span>
@@ -64,22 +60,6 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading }:
           onKeyPress={handleKeyPress}
           placeholder="202101"
           maxLength={6}
-          className="sidebar-input font-mono"
-        />
-      </div>
-
-      {/* District ID */}
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-slate-400 mb-2">
-          District ID
-          <span className="text-slate-500 text-xs ml-1">(optional)</span>
-        </label>
-        <input
-          type="text"
-          value={filters.districtId}
-          onChange={handleDistrictChange}
-          onKeyPress={handleKeyPress}
-          placeholder="e.g., SE5001"
           className="sidebar-input font-mono"
         />
       </div>

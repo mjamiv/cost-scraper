@@ -157,11 +157,12 @@ export function CostCharts({ data }: CostChartsProps) {
   const allChartData = useMemo<ChartDataPoint[]>(() => {
     if (!data.length) return [];
 
+    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
+    // Root rows contain the project totals - children are already summed into these
     const topLevelRows = data.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
-      if (!cbs) return true;
-      const dotCount = (cbs.match(/\./g) || []).length;
-      return dotCount <= 1;
+      // Only include rows with empty/null/"-" CBS - these are project root totals
+      return !cbs || cbs.trim() === '' || cbs === '-';
     });
 
     interface PeriodAgg {

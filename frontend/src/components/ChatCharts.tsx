@@ -86,11 +86,11 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
+    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
+    // Root rows contain project totals - children are already summed into these
     const topLevelRows = data.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
-      if (!cbs) return true;
-      const dotCount = (cbs.match(/\./g) || []).length;
-      return dotCount <= 1;
+      return !cbs || cbs.trim() === '' || cbs === '-';
     });
 
     const periodData = new Map<string, { jtdSpend: number; perSpend: number }>();
@@ -186,11 +186,11 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
 
     const projectMap = new Map<string, { budget: number; jtdSpend: number; forecast: number }>();
 
+    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
+    // Root rows contain project totals - children are already summed into these
     const topLevelRows = data.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
-      if (!cbs) return true;
-      const dotCount = (cbs.match(/\./g) || []).length;
-      return dotCount <= 1;
+      return !cbs || cbs.trim() === '' || cbs === '-';
     });
 
     for (const row of topLevelRows) {
@@ -263,11 +263,11 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
 
     const projectMap = new Map<string, number>();
 
+    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
+    // Root rows contain project totals - children are already summed into these
     const topLevelRows = data.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
-      if (!cbs) return true;
-      const dotCount = (cbs.match(/\./g) || []).length;
-      return dotCount <= 1;
+      return !cbs || cbs.trim() === '' || cbs === '-';
     });
 
     for (const row of topLevelRows) {

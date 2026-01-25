@@ -202,15 +202,19 @@ function buildPeriodTree(periodRows: CostDataRow[], period: string): Hierarchica
   sortSubRows(rootRows);
 
   // Aggregate values from children up to parents
+  // Always aggregate from children to ensure consistency and prevent
+  // double/triple counting when parent's database value already includes children
   const aggregateUp = (rows: HierarchicalCostDataRow[]) => {
     for (const row of rows) {
       if (row.subRows && row.subRows.length > 0) {
+        // First, recursively aggregate children
         aggregateUp(row.subRows);
 
-        if (row.isAggregated) {
-          const aggregatedValues = aggregateRows(row.subRows);
-          Object.assign(row, aggregatedValues);
-        }
+        // Always recalculate parent values from children
+        // This ensures displayed parent value equals sum of displayed children
+        const aggregatedValues = aggregateRows(row.subRows);
+        Object.assign(row, aggregatedValues);
+        row.isAggregated = true;
       }
     }
   };

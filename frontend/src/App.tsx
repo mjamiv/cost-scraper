@@ -124,10 +124,7 @@ function App() {
           {/* Logo */}
           <div className="flex items-center gap-3">
             <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Northstar" className="header-logo-img" />
-            <div>
-              <h1 className="text-lg font-bold tracking-tight">northstar.cost-chat</h1>
-              <p className="text-xs text-neutral-500 hidden sm:block">chat with cost</p>
-            </div>
+            <h1 className="text-lg font-bold tracking-tight">northstar.cost-chat</h1>
           </div>
         </div>
 

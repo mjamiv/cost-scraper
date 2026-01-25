@@ -610,101 +610,45 @@ export function DataTable({ data, isLoading }: DataTableProps) {
 
   return (
     <div className="glass-card overflow-hidden">
-      {/* Table Controls */}
-      <div className="p-4 border-b border-midnight-600 flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-4">
-          <div className="text-sm text-slate-400">
-            <span className="text-accent font-semibold">
-              {table.getFilteredRowModel().rows.length.toLocaleString()}
-            </span>{' '}
-            records
-          </div>
+      {/* Table Controls - Compact */}
+      <div className="px-3 py-2 border-b border-midnight-600 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400">
+            <span className="text-accent font-semibold">{table.getFilteredRowModel().rows.length.toLocaleString()}</span> rows
+          </span>
           <input
             type="text"
             value={globalFilter}
             onChange={(e) => setGlobalFilter(e.target.value)}
-            placeholder="Search all columns..."
-            className="input-field w-64 text-sm"
+            placeholder="Search..."
+            className="input-field w-32 text-xs py-1 px-2"
           />
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExpandAll}
-              className="btn-secondary text-sm px-3 py-1.5"
-              title="Expand all rows"
-            >
-              <svg
-                className="w-4 h-4 mr-1 inline"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 9l-7 7-7-7"
-                />
-              </svg>
-              Expand All
-            </button>
-            <button
-              onClick={handleCollapseAll}
-              className="btn-secondary text-sm px-3 py-1.5"
-              title="Collapse all rows"
-            >
-              <svg
-                className="w-4 h-4 mr-1 inline"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M5 15l7-7 7 7"
-                />
-              </svg>
-              Collapse All
-            </button>
-          </div>
-
-          {/* Column Visibility Dropdown */}
+          <button onClick={handleExpandAll} className="btn-icon" title="Expand all">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+          <button onClick={handleCollapseAll} className="btn-icon" title="Collapse all">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
           <div className="column-visibility-dropdown" ref={columnMenuRef}>
-            <button
-              onClick={() => setShowColumnMenu(!showColumnMenu)}
-              className="btn-secondary text-sm px-3 py-1.5"
-              title="Show/hide columns"
-            >
-              <svg
-                className="w-4 h-4 mr-1 inline"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2"
-                />
+            <button onClick={() => setShowColumnMenu(!showColumnMenu)} className="btn-icon" title="Columns">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
               </svg>
-              Columns
             </button>
             {showColumnMenu && (
               <div className="column-visibility-menu">
-                <div className="px-4 py-2 border-b border-midnight-600 text-xs font-semibold text-slate-400 uppercase">
-                  Toggle Columns
+                <div className="px-3 py-1.5 border-b border-midnight-600 text-xs font-semibold text-slate-400 uppercase">
+                  Columns
                 </div>
                 {table.getAllLeafColumns()
                   .filter(col => col.id !== 'expander')
                   .map(column => (
                     <label key={column.id} className="column-visibility-item">
-                      <input
-                        type="checkbox"
-                        checked={column.getIsVisible()}
-                        onChange={column.getToggleVisibilityHandler()}
-                      />
+                      <input type="checkbox" checked={column.getIsVisible()} onChange={column.getToggleVisibilityHandler()} />
                       <span>{columnLabels[column.id] || column.id}</span>
                     </label>
                   ))}
@@ -712,24 +656,17 @@ export function DataTable({ data, isLoading }: DataTableProps) {
             )}
           </div>
         </div>
-
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-            className="btn-secondary text-sm"
-          >
-            Previous
+        <div className="flex items-center gap-1">
+          <button onClick={() => table.previousPage()} disabled={!table.getCanPreviousPage()} className="btn-icon" title="Previous">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+            </svg>
           </button>
-          <span className="text-sm text-slate-400 px-3">
-            Page {table.getState().pagination.pageIndex + 1} of {table.getPageCount()}
-          </span>
-          <button
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-            className="btn-secondary text-sm"
-          >
-            Next
+          <span className="text-xs text-slate-400 px-1">{table.getState().pagination.pageIndex + 1}/{table.getPageCount()}</span>
+          <button onClick={() => table.nextPage()} disabled={!table.getCanNextPage()} className="btn-icon" title="Next">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
           </button>
         </div>
       </div>

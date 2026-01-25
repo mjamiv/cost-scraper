@@ -91,12 +91,13 @@ export function generateLLMSummary(data: CostDataRow[]): LLMCostSummary {
 
   const sortedPeriods = Array.from(periods).sort();
 
-  // Filter to top-level rows for aggregation
+  // Filter to ROOT-level rows only for aggregation (empty CBS_HIERARCHY)
+  // Root rows have no CBS_HIERARCHY - they contain the project totals
+  // Child rows (CBS "1", "2", etc.) are already summed into the root
   const topLevelRows = data.filter(row => {
     const cbs = row.CBS_HIERARCHY;
-    if (!cbs) return true;
-    const dotCount = (cbs.match(/\./g) || []).length;
-    return dotCount <= 1;
+    // Only include rows with empty/null/"-" CBS - these are project root totals
+    return !cbs || cbs.trim() === '' || cbs === '-';
   });
 
   // Calculate totals
