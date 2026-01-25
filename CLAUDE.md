@@ -121,23 +121,47 @@ The frontend supports a demo mode with mock data when deployed to GitHub Pages. 
 - Natural language queries about cost data
 - Streaming responses with markdown table rendering
 - Voice input/output support
-- Inline chart generation (`/chart spend`, `/chart variance`, etc.)
+- Inline chart generation (`/chart spend`, `/chart variance`, `/chart earned-value`)
+- **Date range filtering** - Charts respond to "Q1 2024", "Jan 2024 to Jun 2024"
 - Executive summary and variance analysis
-- **FTE calculations** with configurable work schedules
+- **FTE calculations** with 4-4-5 financial calendar
+- **Professional UI**: Avatars, timestamps, copy button, loading skeleton
 
-### FTE (Full-Time Equivalent) Domain Knowledge
-The chat system prompt includes FTE calculation logic:
-- **Definition**: 1 FTE = 1 person at 8 hrs/day, 5 days/week = 40 hrs/week
-- **Average Rate**: JTD Spend ÷ JTD Manhours (blended hourly cost)
-- **Conversions**:
-  - Manhours to FTEs: `FTEs = Manhours ÷ (hours_per_day × days_per_week)`
-  - FTEs to Manhours: `Manhours = FTEs × hours_per_day × days_per_week`
-  - FTE Cost: `Cost = FTEs × hours_per_day × days_per_week × Average_Rate`
-- **User Confirmation Required**: When user asks about FTEs, chatbot must:
-  1. State work schedule assumptions (default: 8 hrs/day, 5 days/week)
-  2. Ask user to confirm or override assumptions
-  3. Show Average Rate with calculation justification
-  4. Allow user to override average rate if needed
+### Inline Chat Charts
+Charts can be triggered by natural language and filter by date:
+- `"Show spend trend for Q1 2024"` → Filtered spend chart
+- `"Earned value chart Jan 2024 to Jun 2024"` → EV chart with date range
+- `"Monthly spend in 2024"` → Full year spend trend
+
+**Chart Types:**
+| Type | Trigger Words |
+|------|---------------|
+| `spend-trend` | spend trend, monthly spend, spending |
+| `earned-value` | earned value, EV, CPI, SPI |
+| `project-comparison` | project comparison, compare projects |
+| `budget-pie` | budget allocation, pie chart |
+| `variance` | variance, over budget, under budget |
+
+### FTE Calculations (4-4-5 Financial Calendar)
+
+The AI context includes pre-calculated FTE metrics for each period:
+
+| Metric | Formula | Description |
+|--------|---------|-------------|
+| Monthly FTE | `PER_MH / (40 × weeks)` | FTEs for the month |
+| Weekly FTE | `PER_MH / weeks / 40` | Average FTEs per week |
+| Avg Rate | `PER_SPEND / PER_MH` | Blended hourly rate ($/hr) |
+
+**4-4-5 Calendar:**
+```
+Q1: Jan (4 wks), Feb (4 wks), Mar (5 wks)
+Q2: Apr (4 wks), May (4 wks), Jun (5 wks)
+Q3: Jul (4 wks), Aug (4 wks), Sep (5 wks)
+Q4: Oct (4 wks), Nov (4 wks), Dec (5 wks)
+```
+
+The "Spending & FTE by Period" table in AI context shows:
+`| Period | Spend | Manhours | Monthly FTE | Weekly FTE | Avg Rate |`
 
 ### Data Processing Notes
 - **Snowflake returns numeric values as strings** - All formatting functions must parse with `parseFloat()` before calling `.toFixed()`. This applies to DataTable.tsx, CostCharts.tsx, ChatCharts.tsx, and any component displaying Snowflake data.
@@ -149,6 +173,18 @@ The chat system prompt includes FTE calculation logic:
 
 ### Chat Response Formatting
 - System prompt enforces structured responses with tables
-- `preprocessMarkdown()` handles inline tables and malformed markdown
+- **Short headers required** (max 4 words): "Summary", "Cost Status", not "Executive Summary of Cost Status"
+- `preprocessMarkdown()` handles:
+  - Blank lines before/after headers and lists
+  - Inline table splitting (converts `||` to row breaks)
+  - Table separator row insertion
+  - `[object Object]` artifact cleanup
 - `getTextContent()` helper extracts text from React children safely
-- Safety filter removes any `[object Object]` artifacts
+- `parseDateRange()` extracts date ranges from user messages for chart filtering
+
+### Chat UI Components
+- **Avatars**: User (gold person icon), Assistant (chart icon)
+- **Timestamps**: Displayed below each message
+- **Copy button**: Appears on hover for assistant messages
+- **Loading skeleton**: Shimmer animation during streaming
+- **Slide-in animation**: Messages animate when appearing

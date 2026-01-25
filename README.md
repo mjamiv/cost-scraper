@@ -9,15 +9,17 @@ A modern web application for querying and visualizing project cost data from Sno
 ## Features
 
 - 🤖 **AI Chat Interface** - Natural language queries about cost data with GPT-5.2
-- 📐 **FTE Calculations** - Full-Time Equivalent conversions with configurable work schedules
+- 📐 **FTE Calculations** - Full-Time Equivalent using 4-4-5 financial calendar
 - 📊 **Interactive Data Table** - Sort, filter, and paginate through cost data
 - 🌳 **Hierarchical View** - Expand/collapse CBS hierarchy levels with aggregated totals
 - 📈 **Spend Analysis Chart** - Monthly spend bars, cumulative line, and Earned Value curve
-- 💰 **Earned Value Analysis** - Visual comparison of actual spend vs earned value (% Complete × Budget)
-- 🎚️ **Date Range Filter** - Slider controls to focus on specific time periods
+- 💰 **Earned Value Chart** - Compare Actual Spend vs Earned Value with CPI indicator
+- 📅 **Smart Date Filtering** - Charts respond to date ranges in queries ("Q1 2024", "Jan-Jun 2024")
+- 🎚️ **Date Range Slider** - Interactive controls to focus on specific time periods
 - 🔍 **Flexible Querying** - Filter by project numbers and fiscal periods
-- 📋 **Comprehensive Metrics** - Budget, period, JTD, forecast, PF, CF data
+- 📋 **Comprehensive Metrics** - Budget, period, JTD, forecast, PF, CF, manhours data
 - 🎤 **Voice Input/Output** - Speak questions and hear responses
+- 👤 **Professional Chat UI** - Avatars, timestamps, copy buttons, loading animations
 - ⚡ **Fast & Responsive** - Built with FastAPI and React for optimal performance
 
 ## Tech Stack
@@ -167,11 +169,20 @@ cost-scraper/
 - Quantity, % Complete, Manhours, Spend, Unit Cost
 
 ### FTE (Full-Time Equivalent)
-The AI chat understands FTE calculations:
-- **Definition**: 1 FTE = 1 person working 8 hours/day, 5 days/week (40 hrs/week)
-- **Average Rate**: Calculated as JTD Spend ÷ JTD Manhours
-- **Conversions**: Manhours ↔ FTEs, FTE cost estimates
-- When asking about FTEs, the chatbot will confirm work schedule assumptions and show the average rate calculation
+The AI chat calculates FTE using the **4-4-5 financial calendar**:
+
+| Metric | Formula |
+|--------|---------|
+| Monthly FTE | `PER_MH / (40 hrs × weeks_in_month)` |
+| Weekly FTE | `PER_MH / weeks_in_month / 40 hrs` |
+| Avg Rate | `PER_SPEND / PER_MH` ($/hour) |
+
+**4-4-5 Calendar Pattern:**
+- Months 1-2 of each quarter: 4 weeks
+- Month 3 of each quarter: 5 weeks
+- Example: Jan (4), Feb (4), Mar (5), Apr (4), May (4), Jun (5)...
+
+The chat automatically includes FTE metrics in the "Spending & FTE by Period" table
 
 ### Forecast
 - Remaining Quantity, MHF, Manhours, Amount, Change, SL Variance
