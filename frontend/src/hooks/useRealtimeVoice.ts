@@ -248,6 +248,18 @@ export function useRealtimeVoice(options: UseRealtimeVoiceOptions): UseRealtimeV
           }
           break;
 
+        case 'output_audio_buffer.started':
+          // AI is about to start speaking
+          setState('speaking');
+          break;
+
+        case 'output_audio_buffer.stopped':
+          // AI finished playing audio - return to connected state
+          if (state === 'speaking') {
+            setState('connected');
+          }
+          break;
+
         case 'response.done':
           // Track output audio duration
           if (audioTimingRef.current.outputStartTime) {
@@ -265,7 +277,22 @@ export function useRealtimeVoice(options: UseRealtimeVoiceOptions): UseRealtimeV
             }
           }
 
-          setState('connected');
+          // Only set to connected if not already speaking (audio might still be playing)
+          if (state !== 'speaking') {
+            setState('connected');
+          }
+          break;
+
+        case 'input_audio_buffer.committed':
+          // User's audio was committed for processing
+          break;
+
+        case 'conversation.item.created':
+          // A new conversation item was created
+          break;
+
+        case 'rate_limits.updated':
+          // Rate limit info - can be used for monitoring
           break;
 
         case 'error':
@@ -310,12 +337,17 @@ export function useRealtimeVoice(options: UseRealtimeVoiceOptions): UseRealtimeV
         session_config: sessionConfig
       });
 
-      // Request microphone access
+      // Request microphone access with enhanced noise suppression
       const localStream = await navigator.mediaDevices.getUserMedia({
         audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
+          echoCancellation: { ideal: true },
+          noiseSuppression: { ideal: true },
+          autoGainControl: { ideal: true },
+          // Additional constraints for better voice quality
+          channelCount: { ideal: 1 },           // Mono audio for voice
+          sampleRate: { ideal: 24000 },         // Match OpenAI's expected sample rate
+          sampleSize: { ideal: 16 },            // 16-bit audio
+          latency: { ideal: 0.01 },             // Low latency
         }
       });
       localStreamRef.current = localStream;

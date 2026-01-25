@@ -796,9 +796,10 @@ async def api_voice_realtime_token(request: RealtimeTokenRequest):
         },
         "turn_detection": {
             "type": "server_vad",
-            "threshold": 0.5,
-            "prefix_padding_ms": 300,
-            "silence_duration_ms": 500
+            "threshold": 0.65,           # Higher = less sensitive to background noise (0.0-1.0)
+            "prefix_padding_ms": 400,    # Audio to include before speech detected
+            "silence_duration_ms": 1200, # Wait 1.2s of silence before ending turn
+            "create_response": True      # Auto-create response when turn ends
         }
     }
 
