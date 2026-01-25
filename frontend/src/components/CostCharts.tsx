@@ -12,6 +12,7 @@ import {
   TooltipProps,
 } from 'recharts';
 import { CostDataRow } from '../api/types';
+import { excludeCurrentMonth } from '../utils/llmDataFormatter';
 
 interface CostChartsProps {
   data: CostDataRow[];
@@ -21,6 +22,7 @@ interface ChartDataPoint {
   period: string;
   monthlySpend: number;
   cumulativeSpend: number;
+  earnedValue: number;  // % Complete × Budget
   percentComplete: number;
   pf: number;
   cf: number;
@@ -82,22 +84,19 @@ function CustomTooltip({ active, payload, label }: TooltipProps<number, string>)
   const labels: Record<string, string> = {
     monthlySpend: 'Period Spend',
     cumulativeSpend: 'Cumulative Total',
-    percentComplete: '% Complete',
+    earnedValue: 'Earned Value',
     pf: 'Performance Factor',
     cf: 'Cost Factor',
   };
   const colors: Record<string, string> = {
     monthlySpend: COLORS.gold,
     cumulativeSpend: COLORS.purple,
-    percentComplete: COLORS.emerald,
+    earnedValue: COLORS.emerald,
     pf: COLORS.cyan,
     cf: COLORS.amber,
   };
 
   const formatValue = (key: string, value: number): string => {
-    if (key === 'percentComplete') {
-      return `${(value * 100).toFixed(1)}%`;
-    }
     if (key === 'pf' || key === 'cf') {
       return value.toFixed(2);
     }
@@ -157,9 +156,12 @@ export function CostCharts({ data }: CostChartsProps) {
   const allChartData = useMemo<ChartDataPoint[]>(() => {
     if (!data.length) return [];
 
+    // Exclude current month - data is typically incomplete
+    const filteredData = excludeCurrentMonth(data);
+
     // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
     // Root rows contain the project totals - children are already summed into these
-    const topLevelRows = data.filter((row) => {
+    const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       // Only include rows with empty/null/"-" CBS - these are project root totals
       return !cbs || cbs.trim() === '' || cbs === '-';
@@ -168,6 +170,7 @@ export function CostCharts({ data }: CostChartsProps) {
     interface PeriodAgg {
       jtdSpend: number;
       perSpend: number;
+      budget: number;
       percentComplete: number;
       percentCompleteCount: number;
       pf: number;
@@ -183,6 +186,7 @@ export function CostCharts({ data }: CostChartsProps) {
       const existing = periodData.get(period) || {
         jtdSpend: 0,
         perSpend: 0,
+        budget: 0,
         percentComplete: 0,
         percentCompleteCount: 0,
         pf: 0,
@@ -193,12 +197,14 @@ export function CostCharts({ data }: CostChartsProps) {
 
       const jtd = parseFloat(String(row.JTD_SPEND)) || 0;
       const per = parseFloat(String(row.PER_SPEND)) || 0;
+      const budget = parseFloat(String(row.CB_AMT)) || 0;
       const jtdPercComp = parseFloat(String(row.JTD_PERC_COMP)) || 0;
       const jtdPf = parseFloat(String(row.JTD_PF)) || 0;
       const jtdCf = parseFloat(String(row.JTD_CF)) || 0;
 
       existing.jtdSpend += jtd;
       existing.perSpend += per;
+      existing.budget += budget;
 
       // Only count non-zero values for averaging
       if (jtdPercComp > 0) {
@@ -225,11 +231,15 @@ export function CostCharts({ data }: CostChartsProps) {
       return sortedPeriods.map((period) => {
         const d = periodData.get(period)!;
         cumulative += d.perSpend;
+        const percComp = d.percentCompleteCount > 0 ? d.percentComplete / d.percentCompleteCount : 0;
+        // Earned Value = % Complete × Budget
+        const earnedValue = percComp * d.budget;
         return {
           period,
           monthlySpend: d.perSpend,
           cumulativeSpend: cumulative,
-          percentComplete: d.percentCompleteCount > 0 ? d.percentComplete / d.percentCompleteCount : 0,
+          earnedValue,
+          percentComplete: percComp,
           pf: d.pfCount > 0 ? d.pf / d.pfCount : 0,
           cf: d.cfCount > 0 ? d.cf / d.cfCount : 0,
         };
@@ -240,11 +250,15 @@ export function CostCharts({ data }: CostChartsProps) {
         const d = periodData.get(period)!;
         const monthlySpend = d.jtdSpend - prevJtd;
         prevJtd = d.jtdSpend;
+        const percComp = d.percentCompleteCount > 0 ? d.percentComplete / d.percentCompleteCount : 0;
+        // Earned Value = % Complete × Budget
+        const earnedValue = percComp * d.budget;
         return {
           period,
           monthlySpend,
           cumulativeSpend: d.jtdSpend,
-          percentComplete: d.percentCompleteCount > 0 ? d.percentComplete / d.percentCompleteCount : 0,
+          earnedValue,
+          percentComplete: percComp,
           pf: d.pfCount > 0 ? d.pf / d.pfCount : 0,
           cf: d.cfCount > 0 ? d.cf / d.cfCount : 0,
         };
@@ -265,13 +279,14 @@ export function CostCharts({ data }: CostChartsProps) {
     const monthlySpends = chartData.map((d) => d.monthlySpend);
     const avgMonthlySpend = monthlySpends.reduce((a, b) => a + b, 0) / monthlySpends.length;
 
-    // Get latest period's % complete, PF, CF
+    // Get latest period's earned value, % complete, PF, CF
     const latestData = chartData[chartData.length - 1];
+    const earnedValue = latestData?.earnedValue || 0;
     const percentComplete = latestData?.percentComplete || 0;
     const pf = latestData?.pf || 0;
     const cf = latestData?.cf || 0;
 
-    return { totalSpend, avgMonthlySpend, numPeriods: chartData.length, percentComplete, pf, cf };
+    return { totalSpend, avgMonthlySpend, numPeriods: chartData.length, earnedValue, percentComplete, pf, cf };
   }, [chartData]);
 
   // Calculate trend indicator (compare last 3 periods vs previous 3)
@@ -404,17 +419,6 @@ export function CostCharts({ data }: CostChartsProps) {
                 tickFormatter={formatCurrency}
                 width={70}
               />
-              <YAxis
-                yAxisId="percent"
-                orientation="right"
-                tick={{ fill: COLORS.emerald, fontSize: 10, fontFamily: 'system-ui' }}
-                tickLine={false}
-                axisLine={false}
-                tickFormatter={(v: number) => `${(v * 100).toFixed(0)}%`}
-                domain={[0, 1]}
-                width={0}
-                hide
-              />
               <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(212, 164, 24, 0.1)' }} />
               <Legend
                 verticalAlign="top"
@@ -427,12 +431,12 @@ export function CostCharts({ data }: CostChartsProps) {
                   const labels: Record<string, string> = {
                     monthlySpend: 'Period Spend',
                     cumulativeSpend: 'Cumulative Total',
-                    percentComplete: '% Complete',
+                    earnedValue: 'Earned Value',
                   };
                   const colors: Record<string, string> = {
                     monthlySpend: COLORS.gold,
                     cumulativeSpend: COLORS.purple,
-                    percentComplete: COLORS.emerald,
+                    earnedValue: COLORS.emerald,
                   };
                   return (
                     <span style={{ color: colors[value] || '#a3a3a3' }}>
@@ -458,9 +462,9 @@ export function CostCharts({ data }: CostChartsProps) {
                 activeDot={{ r: 6, fill: COLORS.purple, strokeWidth: 2, stroke: '#fff' }}
               />
               <Line
-                yAxisId="percent"
+                yAxisId="right"
                 type="monotone"
-                dataKey="percentComplete"
+                dataKey="earnedValue"
                 stroke={COLORS.emerald}
                 strokeWidth={2}
                 strokeDasharray="5 5"
@@ -487,9 +491,10 @@ export function CostCharts({ data }: CostChartsProps) {
               variant="blue"
             />
             <KpiCard
-              label="% Complete"
-              value={`${(stats.percentComplete * 100).toFixed(1)}%`}
+              label="Earned Value"
+              value={formatFullCurrency(stats.earnedValue)}
               variant="emerald"
+              subtext={`${(stats.percentComplete * 100).toFixed(1)}% complete`}
             />
             <KpiCard
               label="PF (Performance)"

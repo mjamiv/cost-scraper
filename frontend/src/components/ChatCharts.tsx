@@ -16,6 +16,7 @@ import {
   TooltipProps,
 } from 'recharts';
 import { CostDataRow } from '../api/types';
+import { excludeCurrentMonth } from '../utils/llmDataFormatter';
 
 // Brand colors - gold/black theme
 const COLORS = {
@@ -86,9 +87,9 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
-    // Root rows contain project totals - children are already summed into these
-    const topLevelRows = data.filter((row) => {
+    // Exclude current month and filter to ROOT-level rows only
+    const filteredData = excludeCurrentMonth(data);
+    const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
     });
@@ -186,9 +187,9 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
 
     const projectMap = new Map<string, { budget: number; jtdSpend: number; forecast: number }>();
 
-    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
-    // Root rows contain project totals - children are already summed into these
-    const topLevelRows = data.filter((row) => {
+    // Exclude current month and filter to ROOT-level rows only
+    const filteredData = excludeCurrentMonth(data);
+    const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
     });
@@ -263,9 +264,9 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
 
     const projectMap = new Map<string, number>();
 
-    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
-    // Root rows contain project totals - children are already summed into these
-    const topLevelRows = data.filter((row) => {
+    // Exclude current month and filter to ROOT-level rows only
+    const filteredData = excludeCurrentMonth(data);
+    const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
     });

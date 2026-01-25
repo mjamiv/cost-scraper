@@ -12,8 +12,21 @@ interface ExtendedChatMessage extends ChatMessage {
 
 // Preprocess markdown to fix table formatting issues
 function preprocessMarkdown(content: string): string {
-  // Check if content has pipe characters that look like a table but aren't properly formatted
-  const lines = content.split('\n');
+  // First, fix inline tables where || indicates row breaks (AI sometimes returns tables without newlines)
+  // Pattern: | Header1 | Header2 || Value1 | Value2 || ... (double pipes between rows)
+  let fixed = content;
+
+  // Replace || with newline + | to split inline table rows
+  // But be careful not to break actual content - only do this if it looks like a table pattern
+  if (fixed.includes('||') && fixed.includes('|') && (fixed.match(/\|/g) || []).length >= 6) {
+    // Replace || with newline, ensuring proper table row format
+    fixed = fixed.replace(/\|\|/g, '|\n|');
+  }
+
+  // Also handle cases where table rows are separated by single | at row boundaries
+  // e.g., "| A | B | C || D | E | F |" should become two rows
+
+  const lines = fixed.split('\n');
   const processed: string[] = [];
   let inTable = false;
   let tableLines: string[] = [];
@@ -71,13 +84,33 @@ function preprocessMarkdown(content: string): string {
     processed.push('');
   }
 
-  return processed.join('\n');
+  // Clean up any [object Object] artifacts that might appear
+  let result = processed.join('\n');
+  result = result.replace(/,?\s*\[object Object\],?\s*/g, ' ');
+  result = result.replace(/\[object Object\]/g, '');
+
+  return result;
+}
+
+// Helper to extract text content from React children
+function getTextContent(children: ReactNode): string {
+  if (children === null || children === undefined) return '';
+  if (typeof children === 'string') return children;
+  if (typeof children === 'number') return String(children);
+  if (Array.isArray(children)) {
+    return children.map(getTextContent).join('');
+  }
+  // For React elements, try to get the children prop
+  if (typeof children === 'object' && 'props' in children && children.props?.children) {
+    return getTextContent(children.props.children);
+  }
+  return '';
 }
 
 // Custom paragraph component that handles table-like content in paragraphs
 function TableAwareParagraph({ children }: { children?: ReactNode }) {
-  // Check if children contains a string with table-like content
-  const content = children?.toString() || '';
+  // Extract text content properly to avoid [object Object]
+  const content = getTextContent(children);
 
   // If the paragraph contains pipe characters that look like a table
   if (content.includes('|') && content.split('|').length >= 4) {

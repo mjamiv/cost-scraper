@@ -1,5 +1,24 @@
 import { CostDataRow } from '../api/types';
 
+/**
+ * Get current month in YYYYMM format
+ */
+export function getCurrentMonth(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  return `${year}${month}`;
+}
+
+/**
+ * Filter out current month data from reporting
+ * Current month data is typically incomplete and shouldn't be included in analysis
+ */
+export function excludeCurrentMonth(data: CostDataRow[]): CostDataRow[] {
+  const currentMonth = getCurrentMonth();
+  return data.filter(row => String(row.FISCAL_YEAR_MONTH_NO) !== currentMonth);
+}
+
 // Types for structured LLM export
 export interface LLMCostSummary {
   metadata: {
@@ -58,7 +77,10 @@ function formatCurrency(value: number): string {
 /**
  * Generate structured JSON summary for LLM consumption
  */
-export function generateLLMSummary(data: CostDataRow[]): LLMCostSummary {
+export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
+  // Exclude current month - data is typically incomplete
+  const data = excludeCurrentMonth(rawData);
+
   if (!data.length) {
     return {
       metadata: {

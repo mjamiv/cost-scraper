@@ -425,6 +425,8 @@ def get_system_prompt(data_context: str) -> str:
 3. **Key Insights** - Bullet points for observations and recommendations
 
 **Table Format (REQUIRED for numeric data):**
+CRITICAL: Each table row MUST be on its own line. Never put multiple rows on one line.
+
 | Metric | Value | Status |
 |--------|-------|--------|
 | Total Budget | $1,234,567 | - |
