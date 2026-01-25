@@ -233,8 +233,11 @@ export async function synthesizeSpeech(text: string, voice: string = 'alloy'): P
 
 // Realtime Voice API types
 // OpenAI Realtime API supported voices (as of Jan 2025)
+// Can be a built-in voice string or a custom voice ID
+export type VoiceId = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse' | string;
+
 export interface RealtimeSessionConfig {
-  voice?: 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
+  voice?: VoiceId;
   temperature?: number;
 }
 
@@ -273,6 +276,181 @@ export async function getRealtimeToken(request: RealtimeTokenRequest): Promise<R
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// Custom Voice API types
+export interface CustomVoiceEligibilityResponse {
+  eligible: boolean;
+  message: string;
+}
+
+export interface CustomVoiceConsentResponse {
+  success: boolean;
+  consent_id: string;
+  message: string;
+}
+
+export interface CustomVoiceCreateResponse {
+  success: boolean;
+  voice_id: string;
+  name: string;
+  message: string;
+}
+
+export interface CustomVoiceDeleteResponse {
+  success: boolean;
+  message: string;
+}
+
+/**
+ * Check if the account is eligible for custom voice creation.
+ */
+export async function checkCustomVoiceEligibility(): Promise<CustomVoiceEligibilityResponse> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return {
+      eligible: false,
+      message: 'Custom voices are not available in demo mode. Connect to a backend to use this feature.'
+    };
+  }
+
+  const response = await fetch(`${API_BASE}/voice/custom/eligibility`, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Upload consent recording for voice cloning.
+ */
+export async function uploadConsent(
+  audioBlob: Blob,
+  languageTag: string = 'en-US'
+): Promise<CustomVoiceConsentResponse> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    throw new Error('Custom voices are not available in demo mode.');
+  }
+
+  const formData = new FormData();
+  formData.append('audio', audioBlob, 'consent.webm');
+  formData.append('language_tag', languageTag);
+
+  const response = await fetch(`${API_BASE}/voice/custom/consent`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+
+    // Handle specific error codes
+    if (response.status === 403) {
+      throw new Error('Custom voices require OpenAI approval. Contact sales@openai.com');
+    }
+    if (response.status === 413) {
+      throw new Error('Audio file too large. Maximum size is 10MB.');
+    }
+    if (response.status === 422) {
+      throw new Error(errorData.detail || 'Consent phrase not recognized. Please read the exact phrase shown.');
+    }
+    if (response.status === 429) {
+      throw new Error('Rate limited. Please wait a moment and try again.');
+    }
+
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Create a custom voice from a voice sample.
+ */
+export async function createCustomVoice(
+  audioBlob: Blob,
+  consentId: string,
+  name: string,
+  languageTag: string = 'en-US'
+): Promise<CustomVoiceCreateResponse> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    throw new Error('Custom voices are not available in demo mode.');
+  }
+
+  const formData = new FormData();
+  formData.append('audio', audioBlob, 'voice_sample.webm');
+  formData.append('consent_id', consentId);
+  formData.append('name', name);
+  formData.append('language_tag', languageTag);
+
+  const response = await fetch(`${API_BASE}/voice/custom/create`, {
+    method: 'POST',
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+
+    // Handle specific error codes
+    if (response.status === 403) {
+      throw new Error('Custom voices require OpenAI approval. Contact sales@openai.com');
+    }
+    if (response.status === 413) {
+      throw new Error('Audio file too large. Maximum size is 10MB.');
+    }
+    if (response.status === 422) {
+      throw new Error(errorData.detail || 'Voice sample rejected. Please record a clearer sample.');
+    }
+    if (response.status === 429) {
+      throw new Error('Rate limited. Please wait a moment and try again.');
+    }
+
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+/**
+ * Delete a custom voice.
+ */
+export async function deleteCustomVoice(voiceId: string): Promise<CustomVoiceDeleteResponse> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    throw new Error('Custom voices are not available in demo mode.');
+  }
+
+  const response = await fetch(`${API_BASE}/voice/custom/${encodeURIComponent(voiceId)}`, {
+    method: 'DELETE',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+
+    if (response.status === 404) {
+      throw new Error('Voice not found. It may have already been deleted.');
+    }
+    if (response.status === 403) {
+      throw new Error('Not authorized to delete this voice.');
+    }
+
     throw new Error(errorData.detail || `API Error: ${response.status}`);
   }
 

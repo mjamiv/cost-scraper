@@ -1,4 +1,4 @@
-import { QueryFilters } from '../api/types';
+import { QueryFilters, CostDataRow } from '../api/types';
 
 interface SidebarFiltersProps {
   filters: QueryFilters;
@@ -7,11 +7,34 @@ interface SidebarFiltersProps {
   isLoading: boolean;
   recordCount?: number;
   isDemo?: boolean;
+  data?: CostDataRow[];
 }
 
 const DEFAULT_PROJECTS = '106073';
 
-export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, recordCount = 0, isDemo = false }: SidebarFiltersProps) {
+// Extract unique project info from data
+function getProjectInfo(data: CostDataRow[] | undefined): { number: string; description: string }[] {
+  if (!data || data.length === 0) return [];
+
+  // Get root-level rows (empty CBS_HIERARCHY) which have project totals
+  const rootRows = data.filter(row => !row.CBS_HIERARCHY || row.CBS_HIERARCHY === '');
+
+  // Get unique projects with their descriptions
+  const projectMap = new Map<string, string>();
+  rootRows.forEach(row => {
+    if (row.PROJECT_NUMBER && !projectMap.has(row.PROJECT_NUMBER)) {
+      projectMap.set(row.PROJECT_NUMBER, row.WBS_DESCRIPTION || row.PROJECT_NUMBER);
+    }
+  });
+
+  return Array.from(projectMap.entries()).map(([number, description]) => ({
+    number,
+    description
+  }));
+}
+
+export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, recordCount = 0, isDemo = false, data }: SidebarFiltersProps) {
+  const projectInfo = getProjectInfo(data);
   const handleProjectsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onFilterChange({ ...filters, projectNumbers: e.target.value });
   };
@@ -46,6 +69,26 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
           <span className="text-xs">Connected</span>
         </div>
       </div>
+
+      {/* Project Info Section - shown when data is loaded */}
+      {projectInfo.length > 0 && (
+        <div className="mb-4 pb-4 border-b border-neutral-700">
+          <div className="flex items-center gap-2 mb-3">
+            <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+            <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide">Loaded Projects</h3>
+          </div>
+          <div className="space-y-2">
+            {projectInfo.map(project => (
+              <div key={project.number} className="rounded-lg bg-neutral-800/50 p-3 border border-neutral-700">
+                <div className="text-xs text-gold font-mono mb-1">{project.number}</div>
+                <div className="text-sm text-neutral-200 leading-tight">{project.description}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-2 mb-4">
         <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />

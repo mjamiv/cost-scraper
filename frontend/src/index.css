@@ -46,6 +46,7 @@ body {
   color: var(--color-neutral-100);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  overflow: hidden; /* Prevent body scroll - all scrolling happens in panels */
 }
 
 /* Custom scrollbar */
@@ -83,6 +84,9 @@ body {
   background: var(--color-black);
   border-bottom: 1px solid var(--color-neutral-800);
   @apply flex-shrink-0;
+  position: sticky;
+  top: 0;
+  z-index: 30;
 }
 
 .header-menu-btn {
@@ -155,6 +159,9 @@ body {
   border-right: 1px solid var(--color-neutral-800);
   @apply transition-all duration-300 ease-in-out;
   overflow: hidden;
+  position: sticky;
+  top: 0;
+  align-self: flex-start;
 }
 
 .app-sidebar.collapsed {
@@ -396,17 +403,23 @@ body {
 
 /* Suggestion buttons */
 .chat-suggestion {
-  @apply block w-full text-left px-4 py-3 text-sm;
+  @apply inline-flex items-center text-left px-4 py-2.5 text-sm;
   background: var(--color-neutral-900);
   border: 1px solid var(--color-neutral-800);
   @apply rounded-lg;
   color: var(--color-neutral-300);
   @apply transition-all duration-200;
+  white-space: nowrap;
 }
 
 .chat-suggestion:hover {
   border-color: var(--color-gold);
   color: var(--color-gold);
+}
+
+/* Suggestion buttons container - horizontal layout */
+.chat-suggestions-row {
+  @apply flex flex-wrap gap-2 justify-center;
 }
 
 /* Category buttons */

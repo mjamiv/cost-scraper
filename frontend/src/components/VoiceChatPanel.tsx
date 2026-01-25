@@ -1,6 +1,8 @@
 import { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { CostDataRow } from '../api/types';
 import { useRealtimeVoice, ChartRequest, VoiceState, ConversationItem } from '../hooks/useRealtimeVoice';
+import { useCustomVoices } from '../hooks/useCustomVoices';
+import { deleteCustomVoice } from '../api/costDataApi';
 import { generateMarkdownSummary } from '../utils/llmDataFormatter';
 import {
   SpendTrendChart,
@@ -9,6 +11,7 @@ import {
   BudgetPieChart,
   VarianceChart,
 } from './ChatCharts';
+import { CustomVoiceWizard } from './CustomVoiceWizard';
 import '../styles/voice-chat.css';
 
 interface VoiceChatPanelProps {
@@ -18,9 +21,12 @@ interface VoiceChatPanelProps {
 }
 
 // OpenAI Realtime API supported voices (as of Jan 2025)
-type VoiceOption = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
+type BuiltInVoice = 'alloy' | 'ash' | 'ballad' | 'coral' | 'echo' | 'sage' | 'shimmer' | 'verse';
 
-const VOICE_OPTIONS: { value: VoiceOption; label: string }[] = [
+// Special value for opening the custom voice wizard
+const CREATE_CUSTOM_VOICE = '__create_custom__';
+
+const BUILTIN_VOICE_OPTIONS: { value: BuiltInVoice; label: string }[] = [
   { value: 'alloy', label: 'Alloy (Neutral)' },
   { value: 'ash', label: 'Ash (Confident)' },
   { value: 'ballad', label: 'Ballad (Warm)' },
@@ -30,6 +36,10 @@ const VOICE_OPTIONS: { value: VoiceOption; label: string }[] = [
   { value: 'shimmer', label: 'Shimmer (Bright)' },
   { value: 'verse', label: 'Verse (Dynamic)' },
 ];
+
+function isBuiltInVoice(voice: string): voice is BuiltInVoice {
+  return BUILTIN_VOICE_OPTIONS.some(opt => opt.value === voice);
+}
 
 function getStatusText(state: VoiceState, isMuted: boolean): string {
   switch (state) {
@@ -73,9 +83,14 @@ function formatCost(cost: number): string {
 }
 
 export function VoiceChatPanel({ data, isOpen, onClose }: VoiceChatPanelProps) {
-  const [selectedVoice, setSelectedVoice] = useState<VoiceOption>('alloy');
+  const [selectedVoice, setSelectedVoice] = useState<string>('alloy');
   const [activeChart, setActiveChart] = useState<ChartRequest | null>(null);
+  const [isWizardOpen, setIsWizardOpen] = useState(false);
+  const [deletingVoiceId, setDeletingVoiceId] = useState<string | null>(null);
   const historyEndRef = useRef<HTMLDivElement>(null);
+
+  // Custom voices hook
+  const { voices: customVoices, addVoice, removeVoice } = useCustomVoices();
 
   // Generate data context for the voice assistant
   const dataContext = useMemo(() => {
@@ -98,6 +113,61 @@ export function VoiceChatPanel({ data, isOpen, onClose }: VoiceChatPanelProps) {
     console.error('Voice error:', errorMsg);
   }, []);
 
+  // Handle custom voice creation
+  const handleVoiceCreated = useCallback((voice: { id: string; name: string; languageTag: string }) => {
+    addVoice(voice);
+    setSelectedVoice(voice.id);
+    setIsWizardOpen(false);
+  }, [addVoice]);
+
+  // Handle custom voice deletion
+  const handleDeleteVoice = useCallback(async (voiceId: string, e: React.MouseEvent) => {
+    e.stopPropagation();  // Prevent selecting the voice
+    e.preventDefault();
+
+    if (deletingVoiceId) return;  // Already deleting
+
+    const voice = customVoices.find(v => v.id === voiceId);
+    if (!voice) return;
+
+    if (!confirm(`Delete custom voice "${voice.name}"? This cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingVoiceId(voiceId);
+
+    try {
+      // Delete from OpenAI
+      await deleteCustomVoice(voiceId);
+      // Remove from local storage
+      removeVoice(voiceId);
+      // Reset selection if deleted voice was selected
+      if (selectedVoice === voiceId) {
+        setSelectedVoice('alloy');
+      }
+    } catch (err) {
+      console.error('Failed to delete voice:', err);
+      alert(err instanceof Error ? err.message : 'Failed to delete voice');
+    } finally {
+      setDeletingVoiceId(null);
+    }
+  }, [customVoices, deletingVoiceId, removeVoice, selectedVoice]);
+
+  // Handle voice selection change
+  const handleVoiceChange = useCallback((value: string) => {
+    if (value === CREATE_CUSTOM_VOICE) {
+      setIsWizardOpen(true);
+    } else {
+      setSelectedVoice(value);
+    }
+  }, []);
+
+  // Get voice config for API
+  const voiceConfig = useMemo(() => {
+    // Return the voice ID - both built-in and custom voices are strings
+    return selectedVoice;
+  }, [selectedVoice]);
+
   // Initialize voice hook
   const {
     state,
@@ -115,7 +185,7 @@ export function VoiceChatPanel({ data, isOpen, onClose }: VoiceChatPanelProps) {
     toggleMute,
   } = useRealtimeVoice({
     dataContext,
-    sessionConfig: { voice: selectedVoice },
+    sessionConfig: { voice: voiceConfig },
     onChartRequest: handleChartRequest,
     onSessionEnd: handleSessionEnd,
     onError: handleError,
@@ -277,24 +347,68 @@ export function VoiceChatPanel({ data, isOpen, onClose }: VoiceChatPanelProps) {
 
         {/* Voice selector (only when disconnected) */}
         {!isConnected && (
-          <div className="voice-selector">
-            <label htmlFor="voice-select" className="voice-selector-label">
-              Voice:
-            </label>
-            <select
-              id="voice-select"
-              value={selectedVoice}
-              onChange={(e) => setSelectedVoice(e.target.value as VoiceOption)}
-              className="voice-selector-select"
-            >
-              {VOICE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
+          <div className="voice-selector-container">
+            <div className="voice-selector">
+              <label htmlFor="voice-select" className="voice-selector-label">
+                Voice:
+              </label>
+              <select
+                id="voice-select"
+                value={selectedVoice}
+                onChange={(e) => handleVoiceChange(e.target.value)}
+                className="voice-selector-select"
+              >
+                <optgroup label="Built-in Voices">
+                  {BUILTIN_VOICE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </optgroup>
+                {customVoices.length > 0 && (
+                  <optgroup label="My Voices">
+                    {customVoices.map((voice) => (
+                      <option key={voice.id} value={voice.id}>
+                        {voice.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                <optgroup label="">
+                  <option value={CREATE_CUSTOM_VOICE}>+ Create Custom Voice</option>
+                </optgroup>
+              </select>
+            </div>
+
+            {/* Delete button for selected custom voice */}
+            {!isBuiltInVoice(selectedVoice) && customVoices.some(v => v.id === selectedVoice) && (
+              <button
+                onClick={(e) => handleDeleteVoice(selectedVoice, e)}
+                className="voice-delete-btn"
+                title="Delete custom voice"
+                disabled={deletingVoiceId === selectedVoice}
+              >
+                {deletingVoiceId === selectedVoice ? (
+                  <svg className="voice-delete-spinner" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                  </svg>
+                ) : (
+                  <svg className="voice-delete-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
+                )}
+              </button>
+            )}
           </div>
         )}
+
+        {/* Custom Voice Wizard */}
+        <CustomVoiceWizard
+          isOpen={isWizardOpen}
+          onClose={() => setIsWizardOpen(false)}
+          onVoiceCreated={handleVoiceCreated}
+        />
 
         {/* Control buttons */}
         <div className="voice-control-buttons">

@@ -180,6 +180,7 @@ function App() {
             isLoading={isLoading}
             recordCount={data.length}
             isDemo={isStaticDeployment}
+            data={data}
           />
         </Sidebar>
 

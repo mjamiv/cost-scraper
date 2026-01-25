@@ -684,26 +684,28 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
 
                 {/* Example Prompts */}
                 {!activeCategory && (
-                  <div className="space-y-2 max-w-md mx-auto">
+                  <div className="max-w-lg mx-auto">
                     <p className="text-sm text-neutral-400 mb-3">Try These Examples. Or try your own!</p>
-                    <button
-                      onClick={() => handleSendMessage('Give me an executive summary of the current cost status')}
-                      className="chat-suggestion"
-                    >
-                      📊 Executive Summary
-                    </button>
-                    <button
-                      onClick={() => addChartMessage('spend-trend', 'Spend Trend Chart')}
-                      className="chat-suggestion"
-                    >
-                      📈 Show Spend Trend Chart
-                    </button>
-                    <button
-                      onClick={() => handleSendMessage('/help')}
-                      className="chat-suggestion"
-                    >
-                      💡 Show available commands
-                    </button>
+                    <div className="chat-suggestions-row">
+                      <button
+                        onClick={() => handleSendMessage('Give me an executive summary of the current cost status')}
+                        className="chat-suggestion"
+                      >
+                        📊 Executive Summary
+                      </button>
+                      <button
+                        onClick={() => addChartMessage('spend-trend', 'Spend Trend Chart')}
+                        className="chat-suggestion"
+                      >
+                        📈 Spend Trend
+                      </button>
+                      <button
+                        onClick={() => handleSendMessage('/help')}
+                        className="chat-suggestion"
+                      >
+                        💡 Commands
+                      </button>
+                    </div>
                   </div>
                 )}
               </>

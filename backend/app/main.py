@@ -182,6 +182,40 @@ class RealtimeTokenResponse(BaseModel):
     voice: str
 
 
+class CustomVoiceEligibilityResponse(BaseModel):
+    """Response model for custom voice eligibility check."""
+    eligible: bool
+    message: str
+
+
+class CustomVoiceConsentResponse(BaseModel):
+    """Response model for consent upload."""
+    success: bool
+    consent_id: str
+    message: str
+
+
+class CustomVoiceCreateRequest(BaseModel):
+    """Request model for creating a custom voice."""
+    consent_id: str = Field(..., description="ID from consent upload")
+    name: str = Field(..., min_length=1, max_length=50, description="User-provided voice name")
+    language_tag: str = Field(default="en-US", description="BCP 47 language tag (e.g., en-US, es-ES)")
+
+
+class CustomVoiceCreateResponse(BaseModel):
+    """Response model for custom voice creation."""
+    success: bool
+    voice_id: str
+    name: str
+    message: str
+
+
+class CustomVoiceDeleteResponse(BaseModel):
+    """Response model for custom voice deletion."""
+    success: bool
+    message: str
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -847,6 +881,350 @@ async def api_voice_realtime_token(request: RealtimeTokenRequest):
     except Exception as e:
         logger.error(f"Unexpected error creating realtime session: {type(e).__name__}: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {type(e).__name__}: {str(e)}")
+
+
+# ============================================================================
+# Custom Voice Endpoints
+# ============================================================================
+
+@app.get("/api/voice/custom/eligibility", response_model=CustomVoiceEligibilityResponse)
+async def api_custom_voice_eligibility():
+    """
+    Check if the OpenAI account is eligible for custom voice creation.
+
+    Custom voices require approval from OpenAI. This endpoint checks
+    eligibility before allowing users to start the voice creation flow.
+    """
+    import httpx
+
+    logger.info("Checking custom voice eligibility...")
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice feature not configured. Set OPENAI_API_KEY in environment."
+        )
+
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            # Check eligibility by attempting to list voice models
+            # or use a dedicated eligibility endpoint if available
+            response = await client.get(
+                "https://api.openai.com/v1/audio/voices",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 403:
+                return CustomVoiceEligibilityResponse(
+                    eligible=False,
+                    message="Custom voices require OpenAI approval. Contact sales@openai.com to request access."
+                )
+
+            if response.status_code == 200:
+                return CustomVoiceEligibilityResponse(
+                    eligible=True,
+                    message="Your account is eligible to create custom voices."
+                )
+
+            # For other status codes, assume not eligible but allow to try
+            return CustomVoiceEligibilityResponse(
+                eligible=True,
+                message="Eligibility check inconclusive. You may try creating a custom voice."
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error checking eligibility: {e}")
+        raise HTTPException(status_code=503, detail=f"Network error: {str(e)}")
+    except Exception as e:
+        logger.error(f"Error checking eligibility: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/voice/custom/consent", response_model=CustomVoiceConsentResponse)
+async def api_custom_voice_consent(
+    audio: UploadFile = File(...),
+    language_tag: str = Form(default="en-US")
+):
+    """
+    Upload consent recording for custom voice creation.
+
+    The user must read the exact consent phrase:
+    "I agree to have my voice used to create a synthetic voice."
+
+    Audio formats: webm, wav, mp3, ogg (max 10MB)
+    """
+    import httpx
+
+    logger.info(f"Processing consent recording: {audio.filename}, language={language_tag}")
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice feature not configured. Set OPENAI_API_KEY in environment."
+        )
+
+    # Validate file size (10MB max)
+    content = await audio.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio file too large. Maximum size is 10MB.")
+
+    # Validate file type (check base type, ignoring codec suffixes like ;codecs=opus)
+    valid_base_types = ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/x-wav']
+    if audio.content_type:
+        base_type = audio.content_type.split(';')[0].strip()
+        if base_type not in valid_base_types:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid audio format. Supported: webm, wav, mp3, ogg. Got: {audio.content_type}"
+            )
+
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            # Upload consent to OpenAI custom voice API
+            files = {
+                'file': (audio.filename or 'consent.webm', content, audio.content_type or 'audio/webm')
+            }
+            data = {
+                'language_tag': language_tag,
+                'consent_type': 'voice_cloning'
+            }
+
+            response = await client.post(
+                "https://api.openai.com/v1/audio/voice-consents",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                },
+                files=files,
+                data=data,
+                timeout=60.0
+            )
+
+            if response.status_code == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Custom voices require OpenAI approval. Contact sales@openai.com"
+                )
+
+            if response.status_code == 422:
+                error_detail = response.json().get('error', {}).get('message', 'Consent phrase not recognized')
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Consent not recognized. Please read the exact phrase shown on screen. Error: {error_detail}"
+                )
+
+            if response.status_code == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limited. Please wait a moment and try again."
+                )
+
+            if response.status_code != 200 and response.status_code != 201:
+                error_detail = response.text
+                logger.error(f"Consent upload failed: {response.status_code} - {error_detail}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to upload consent: {error_detail}"
+                )
+
+            result = response.json()
+            consent_id = result.get('id', result.get('consent_id', 'unknown'))
+
+            logger.info(f"Consent uploaded successfully: {consent_id}")
+
+            return CustomVoiceConsentResponse(
+                success=True,
+                consent_id=consent_id,
+                message="Consent recorded successfully. Proceed with voice sample."
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error uploading consent: {e}")
+        raise HTTPException(status_code=503, detail=f"Network error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error uploading consent: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/voice/custom/create", response_model=CustomVoiceCreateResponse)
+async def api_custom_voice_create(
+    audio: UploadFile = File(...),
+    consent_id: str = Form(...),
+    name: str = Form(...),
+    language_tag: str = Form(default="en-US")
+):
+    """
+    Create a custom voice from a voice sample.
+
+    Requires a valid consent_id from the consent endpoint.
+    Audio should be 10-30 seconds of clear speech.
+    """
+    import httpx
+
+    logger.info(f"Creating custom voice: name={name}, consent_id={consent_id}")
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice feature not configured. Set OPENAI_API_KEY in environment."
+        )
+
+    # Validate file size (10MB max)
+    content = await audio.read()
+    if len(content) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Audio file too large. Maximum size is 10MB.")
+
+    # Validate file type (check base type, ignoring codec suffixes like ;codecs=opus)
+    valid_base_types = ['audio/webm', 'audio/wav', 'audio/mp3', 'audio/mpeg', 'audio/ogg', 'audio/x-wav']
+    if audio.content_type:
+        base_type = audio.content_type.split(';')[0].strip()
+        if base_type not in valid_base_types:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid audio format. Supported: webm, wav, mp3, ogg. Got: {audio.content_type}"
+            )
+
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            # Create custom voice with OpenAI
+            files = {
+                'file': (audio.filename or 'voice_sample.webm', content, audio.content_type or 'audio/webm')
+            }
+            data = {
+                'name': name,
+                'consent_id': consent_id,
+                'language_tag': language_tag
+            }
+
+            response = await client.post(
+                "https://api.openai.com/v1/audio/voices",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                },
+                files=files,
+                data=data,
+                timeout=120.0  # Voice creation may take longer
+            )
+
+            if response.status_code == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Custom voices require OpenAI approval. Contact sales@openai.com"
+                )
+
+            if response.status_code == 422:
+                error_detail = response.json().get('error', {}).get('message', 'Invalid voice sample')
+                raise HTTPException(
+                    status_code=422,
+                    detail=f"Voice sample rejected: {error_detail}"
+                )
+
+            if response.status_code == 429:
+                raise HTTPException(
+                    status_code=429,
+                    detail="Rate limited. Please wait a moment and try again."
+                )
+
+            if response.status_code != 200 and response.status_code != 201:
+                error_detail = response.text
+                logger.error(f"Voice creation failed: {response.status_code} - {error_detail}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to create voice: {error_detail}"
+                )
+
+            result = response.json()
+            voice_id = result.get('voice_id', result.get('id', 'unknown'))
+
+            logger.info(f"Custom voice created: {voice_id}")
+
+            return CustomVoiceCreateResponse(
+                success=True,
+                voice_id=voice_id,
+                name=name,
+                message=f"Voice '{name}' created successfully!"
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error creating voice: {e}")
+        raise HTTPException(status_code=503, detail=f"Network error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error creating voice: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/voice/custom/{voice_id}", response_model=CustomVoiceDeleteResponse)
+async def api_custom_voice_delete(voice_id: str):
+    """
+    Delete a custom voice.
+
+    This permanently removes the voice from OpenAI's servers.
+    """
+    import httpx
+
+    logger.info(f"Deleting custom voice: {voice_id}")
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice feature not configured. Set OPENAI_API_KEY in environment."
+        )
+
+    try:
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.delete(
+                f"https://api.openai.com/v1/audio/voices/{voice_id}",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                },
+                timeout=30.0
+            )
+
+            if response.status_code == 404:
+                raise HTTPException(
+                    status_code=404,
+                    detail="Voice not found. It may have already been deleted."
+                )
+
+            if response.status_code == 403:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Not authorized to delete this voice."
+                )
+
+            if response.status_code != 200 and response.status_code != 204:
+                error_detail = response.text
+                logger.error(f"Voice deletion failed: {response.status_code} - {error_detail}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to delete voice: {error_detail}"
+                )
+
+            logger.info(f"Custom voice deleted: {voice_id}")
+
+            return CustomVoiceDeleteResponse(
+                success=True,
+                message="Voice deleted successfully."
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error deleting voice: {e}")
+        raise HTTPException(status_code=503, detail=f"Network error: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting voice: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ============================================================================
