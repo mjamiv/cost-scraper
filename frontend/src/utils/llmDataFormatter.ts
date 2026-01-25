@@ -34,6 +34,9 @@ export interface LLMCostSummary {
     budgetVariance: number;
     totalManhours: number;
     totalManhoursBudget: number;
+    percentComplete: number;
+    earnedValue: number;
+    cpi: number;
     status: 'under_budget' | 'on_budget' | 'over_budget';
   };
   byProject: Array<{
@@ -55,6 +58,8 @@ export interface LLMCostSummary {
     monthlyFTE: number;
     weeklyFTE: number;
     avgRate: number;
+    percentComplete: number;
+    earnedValue: number;
   }>;
   topVarianceItems: Array<{
     project: string;
@@ -165,12 +170,16 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
     return !cbs || cbs.trim() === '' || cbs === '-';
   });
 
-  // Calculate totals
+  // Calculate totals - get the latest period's data for % complete
   let totalBudget = 0;
   let totalSpendJTD = 0;
   let totalForecast = 0;
   let totalManhours = 0;
   let totalManhoursBudget = 0;
+
+  // Get latest period for % complete (it's cumulative)
+  const latestPeriod = Array.from(new Set(topLevelRows.map(r => String(r.FISCAL_YEAR_MONTH_NO)))).sort().pop() || '';
+  const latestRows = topLevelRows.filter(r => String(r.FISCAL_YEAR_MONTH_NO) === latestPeriod);
 
   topLevelRows.forEach(row => {
     totalBudget += parseFloat(String(row.CB_AMT)) || 0;
@@ -179,6 +188,23 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
     totalManhours += parseFloat(String(row.JTD_MH)) || 0;
     totalManhoursBudget += parseFloat(String(row.CB_MHF)) || 0;
   });
+
+  // Calculate weighted % complete from latest period
+  let weightedPctComplete = 0;
+  let totalBudgetForPct = 0;
+  latestRows.forEach(row => {
+    const budget = parseFloat(String(row.CB_AMT)) || 0;
+    const pctComplete = parseFloat(String(row.JTD_PERC_COMP)) || 0;
+    weightedPctComplete += budget * pctComplete;
+    totalBudgetForPct += budget;
+  });
+  const percentComplete = totalBudgetForPct > 0 ? weightedPctComplete / totalBudgetForPct : 0;
+
+  // Earned Value = % Complete × Budget
+  const earnedValue = (percentComplete / 100) * totalBudget;
+
+  // CPI = Earned Value / Actual Cost (>1 is good, <1 is over budget)
+  const cpi = totalSpendJTD > 0 ? earnedValue / totalSpendJTD : 0;
 
   const budgetVariance = totalBudget - totalForecast;
   const status: 'under_budget' | 'on_budget' | 'over_budget' =
@@ -206,26 +232,36 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
     jtdManhours: values.jtdManhours,
   }));
 
-  // Group by period
-  const periodMap = new Map<string, { spend: number; manhours: number }>();
+  // Group by period - include % complete and budget for EV calculation
+  const periodMap = new Map<string, { spend: number; manhours: number; budget: number; pctComplete: number; budgetWeight: number }>();
 
   topLevelRows.forEach(row => {
     const period = String(row.FISCAL_YEAR_MONTH_NO || '');
     const perSpend = parseFloat(String(row.PER_SPEND)) || 0;
     const perMH = parseFloat(String(row.PER_MH)) || 0;
-    const existing = periodMap.get(period) || { spend: 0, manhours: 0 };
+    const budget = parseFloat(String(row.CB_AMT)) || 0;
+    const pctComplete = parseFloat(String(row.JTD_PERC_COMP)) || 0;
+    const existing = periodMap.get(period) || { spend: 0, manhours: 0, budget: 0, pctComplete: 0, budgetWeight: 0 };
     existing.spend += perSpend;
     existing.manhours += perMH;
+    existing.budget += budget;
+    // Weighted average for % complete
+    existing.pctComplete += budget * pctComplete;
+    existing.budgetWeight += budget;
     periodMap.set(period, existing);
   });
 
   let cumulativeSpend = 0;
   let cumulativeMH = 0;
   const byPeriod = sortedPeriods.map(period => {
-    const data = periodMap.get(period) || { spend: 0, manhours: 0 };
+    const data = periodMap.get(period) || { spend: 0, manhours: 0, budget: 0, pctComplete: 0, budgetWeight: 0 };
     cumulativeSpend += data.spend;
     cumulativeMH += data.manhours;
     const fteMetrics = calculateFTEMetrics(data.manhours, data.spend, period);
+    // Calculate weighted % complete for this period
+    const periodPctComplete = data.budgetWeight > 0 ? data.pctComplete / data.budgetWeight : 0;
+    // Earned Value = % Complete × Budget
+    const periodEarnedValue = (periodPctComplete / 100) * data.budget;
     return {
       period,
       periodLabel: formatPeriodLabel(period),
@@ -237,6 +273,8 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
       monthlyFTE: fteMetrics.monthlyFTE,
       weeklyFTE: fteMetrics.weeklyFTE,
       avgRate: fteMetrics.avgRate,
+      percentComplete: periodPctComplete,
+      earnedValue: periodEarnedValue,
     };
   });
 
@@ -270,6 +308,9 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
       budgetVariance,
       totalManhours,
       totalManhoursBudget,
+      percentComplete,
+      earnedValue,
+      cpi,
       status,
     },
     byProject,
@@ -309,7 +350,18 @@ export function generateMarkdownSummary(data: CostDataRow[]): string {
     `| Budget Variance | ${formatCurrency(summary.summary.budgetVariance)} |`,
     `| JTD Manhours | ${formatNumber(summary.summary.totalManhours)} |`,
     `| Budget Manhours | ${formatNumber(summary.summary.totalManhoursBudget)} |`,
+    `| % Complete | ${summary.summary.percentComplete.toFixed(1)}% |`,
+    `| Earned Value | ${formatCurrency(summary.summary.earnedValue)} |`,
+    `| CPI | ${summary.summary.cpi.toFixed(2)} ${summary.summary.cpi >= 1 ? '(on/under budget)' : '(over budget)'} |`,
     `| Status | ${summary.summary.status.replace('_', ' ').toUpperCase()} |`,
+    '',
+    '## Earned Value Summary',
+    '',
+    `- **% Complete:** ${summary.summary.percentComplete.toFixed(1)}%`,
+    `- **Earned Value (EV):** ${formatCurrency(summary.summary.earnedValue)} (= % Complete × Budget)`,
+    `- **Actual Cost (AC):** ${formatCurrency(summary.summary.totalSpendJTD)}`,
+    `- **CPI:** ${summary.summary.cpi.toFixed(2)} ${summary.summary.cpi >= 1 ? '✓ On/Under Budget' : '⚠ Over Budget'}`,
+    `- **Cost Variance:** ${formatCurrency(summary.summary.earnedValue - summary.summary.totalSpendJTD)} (EV - AC)`,
     '',
     '## By Project',
     '',
@@ -328,12 +380,12 @@ export function generateMarkdownSummary(data: CostDataRow[]): string {
   lines.push('');
   lines.push('*FTE calculated using 4-4-5 financial calendar (40 hrs/week)*');
   lines.push('');
-  lines.push('| Period | Spend | Manhours | Monthly FTE | Weekly FTE | Avg Rate ($/hr) |');
-  lines.push('|--------|-------|----------|-------------|------------|-----------------|');
+  lines.push('| Period | Spend | Cumulative | % Complete | Earned Value | Manhours | Monthly FTE | Avg Rate |');
+  lines.push('|--------|-------|------------|------------|--------------|----------|-------------|----------|');
 
   summary.byPeriod.forEach(period => {
     lines.push(
-      `| ${period.periodLabel} | ${formatCurrency(period.spend)} | ${formatNumber(period.manhours)} | ${period.monthlyFTE.toFixed(1)} | ${period.weeklyFTE.toFixed(1)} | $${period.avgRate.toFixed(2)} |`
+      `| ${period.periodLabel} | ${formatCurrency(period.spend)} | ${formatCurrency(period.cumulativeSpend)} | ${period.percentComplete.toFixed(1)}% | ${formatCurrency(period.earnedValue)} | ${formatNumber(period.manhours)} | ${period.monthlyFTE.toFixed(1)} | $${period.avgRate.toFixed(2)} |`
     );
   });
 
@@ -342,10 +394,13 @@ export function generateMarkdownSummary(data: CostDataRow[]): string {
     const totalSpend = summary.byPeriod.reduce((sum, p) => sum + p.spend, 0);
     const totalMH = summary.byPeriod.reduce((sum, p) => sum + p.manhours, 0);
     const avgMonthlyFTE = summary.byPeriod.reduce((sum, p) => sum + p.monthlyFTE, 0) / summary.byPeriod.length;
-    const avgWeeklyFTE = summary.byPeriod.reduce((sum, p) => sum + p.weeklyFTE, 0) / summary.byPeriod.length;
     const overallAvgRate = totalMH > 0 ? totalSpend / totalMH : 0;
+    // Latest period's % complete and EV (they're cumulative)
+    const latestPeriod = summary.byPeriod[summary.byPeriod.length - 1];
+    const latestPctComplete = latestPeriod?.percentComplete || 0;
+    const totalEV = latestPeriod?.earnedValue || 0;
 
-    lines.push(`| **TOTAL/AVG** | ${formatCurrency(totalSpend)} | ${formatNumber(totalMH)} | ${avgMonthlyFTE.toFixed(1)} | ${avgWeeklyFTE.toFixed(1)} | $${overallAvgRate.toFixed(2)} |`);
+    lines.push(`| **TOTAL/AVG** | ${formatCurrency(totalSpend)} | ${formatCurrency(latestPeriod?.cumulativeSpend || 0)} | ${latestPctComplete.toFixed(1)}% | ${formatCurrency(totalEV)} | ${formatNumber(totalMH)} | ${avgMonthlyFTE.toFixed(1)} | $${overallAvgRate.toFixed(2)} |`);
   }
 
   if (summary.topVarianceItems.length > 0) {
