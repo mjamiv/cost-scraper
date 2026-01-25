@@ -75,20 +75,41 @@ function DarkTooltip({ active, payload, label }: TooltipProps<number, string>) {
   );
 }
 
+interface DateRange {
+  start?: string; // YYYYMM format
+  end?: string;   // YYYYMM format
+}
+
 interface ChartProps {
   data: CostDataRow[];
   title?: string;
+  dateRange?: DateRange;
+}
+
+/**
+ * Filter data by date range
+ */
+function filterByDateRange(data: CostDataRow[], dateRange?: DateRange): CostDataRow[] {
+  if (!dateRange || (!dateRange.start && !dateRange.end)) return data;
+
+  return data.filter(row => {
+    const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+    if (dateRange.start && period < dateRange.start) return false;
+    if (dateRange.end && period > dateRange.end) return false;
+    return true;
+  });
 }
 
 /**
  * Spend Trend Chart - Bar + Line combo showing period spend and cumulative
  */
-export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
+export function SpendTrendChart({ data, title = 'Spend Trend', dateRange }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    // Exclude current month and filter to ROOT-level rows only
-    const filteredData = excludeCurrentMonth(data);
+    // Exclude current month, filter by date range, and filter to ROOT-level rows only
+    let filteredData = excludeCurrentMonth(data);
+    filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
@@ -173,6 +194,101 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
             <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke={COLORS.purple} strokeWidth={2.5} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Earned Value Chart - Shows Budget, Actual Spend, and Earned Value over time
+ */
+export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRange }: ChartProps) {
+  const chartData = useMemo(() => {
+    if (!data.length) return [];
+
+    // Exclude current month, filter by date range, and filter to ROOT-level rows only
+    let filteredData = excludeCurrentMonth(data);
+    filteredData = filterByDateRange(filteredData, dateRange);
+    const topLevelRows = filteredData.filter((row) => {
+      const cbs = row.CBS_HIERARCHY;
+      return !cbs || cbs.trim() === '' || cbs === '-';
+    });
+
+    const periodData = new Map<string, { jtdSpend: number; budget: number; percentComplete: number }>();
+
+    for (const row of topLevelRows) {
+      const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+      const existing = periodData.get(period) || { jtdSpend: 0, budget: 0, percentComplete: 0 };
+      existing.jtdSpend += parseFloat(String(row.JTD_SPEND)) || 0;
+      existing.budget += parseFloat(String(row.CB_AMT)) || 0;
+      // Use max percent complete for the period (it's cumulative)
+      const pctComp = parseFloat(String(row.JTD_PERC_COMP)) || 0;
+      if (pctComp > existing.percentComplete) existing.percentComplete = pctComp;
+      periodData.set(period, existing);
+    }
+
+    const sortedPeriods = Array.from(periodData.keys()).sort();
+
+    return sortedPeriods.map((period) => {
+      const d = periodData.get(period)!;
+      // Earned Value = % Complete × Budget
+      const earnedValue = (d.percentComplete / 100) * d.budget;
+      return {
+        period: formatPeriodLabel(period),
+        actualSpend: d.jtdSpend,
+        earnedValue,
+        budget: d.budget,
+      };
+    });
+  }, [data, dateRange]);
+
+  if (!chartData.length) return null;
+
+  // Calculate SPI and CPI for the latest period
+  const latest = chartData[chartData.length - 1];
+  const spi = latest.earnedValue > 0 && latest.budget > 0 ? (latest.earnedValue / (latest.budget * (chartData.length / 12))).toFixed(2) : 'N/A';
+  const cpi = latest.actualSpend > 0 ? (latest.earnedValue / latest.actualSpend).toFixed(2) : 'N/A';
+
+  return (
+    <div className="chat-chart">
+      <div className="chat-chart-header">{title}</div>
+      <div className="chat-chart-body">
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={chartData} margin={{ top: 15, right: 45, left: 5, bottom: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <XAxis
+              dataKey="period"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: '#404040' }}
+              angle={-45}
+              textAnchor="end"
+              interval={Math.max(0, Math.floor(chartData.length / 10))}
+              dy={5}
+            />
+            <YAxis
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatCurrency}
+              width={70}
+            />
+            <Tooltip content={<DarkTooltip />} />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+            />
+            <Line type="monotone" dataKey="actualSpend" name="Actual Spend" stroke={COLORS.gold} strokeWidth={2.5} dot={false} />
+            <Line type="monotone" dataKey="earnedValue" name="Earned Value" stroke={COLORS.emerald} strokeWidth={2.5} strokeDasharray="5 5" dot={false} />
+            <Line type="monotone" dataKey="budget" name="Budget" stroke={COLORS.blue} strokeWidth={2} strokeDasharray="3 3" dot={false} opacity={0.5} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div className="flex justify-center gap-6 text-xs mt-2 pb-2">
+          <span className="text-neutral-400">CPI: <span className={`font-semibold ${parseFloat(cpi) >= 1 ? 'text-emerald-400' : 'text-red-400'}`}>{cpi}</span></span>
+        </div>
       </div>
     </div>
   );
@@ -420,30 +536,83 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
   );
 }
 
-export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance';
+export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value';
 
 interface InlineChatChartProps {
   type: ChartType;
   data: CostDataRow[];
   title?: string;
+  dateRange?: DateRange;
 }
 
 /**
  * Main component to render inline charts in chat based on type
  */
-export function InlineChatChart({ type, data, title }: InlineChatChartProps) {
+export function InlineChatChart({ type, data, title, dateRange }: InlineChatChartProps) {
   switch (type) {
     case 'spend-trend':
-      return <SpendTrendChart data={data} title={title} />;
+      return <SpendTrendChart data={data} title={title} dateRange={dateRange} />;
     case 'project-comparison':
       return <ProjectComparisonChart data={data} title={title} />;
     case 'budget-pie':
       return <BudgetPieChart data={data} title={title} />;
     case 'variance':
       return <VarianceChart data={data} title={title} />;
+    case 'earned-value':
+      return <EarnedValueChart data={data} title={title} dateRange={dateRange} />;
     default:
       return null;
   }
+}
+
+/**
+ * Parse date range from message (e.g., "Jan 2024 to Jun 2024", "2024", "Q1 2024")
+ */
+export function parseDateRange(message: string): DateRange | undefined {
+  const lower = message.toLowerCase();
+
+  // Match "YYYY" for full year
+  const yearMatch = lower.match(/\b(202\d)\b/);
+  if (yearMatch && !lower.includes('to') && !lower.includes('-')) {
+    const year = yearMatch[1];
+    // Check if asking for specific year only
+    if (lower.includes(`in ${year}`) || lower.includes(`for ${year}`) || lower.includes(`${year} data`)) {
+      return { start: `${year}01`, end: `${year}12` };
+    }
+  }
+
+  // Match month ranges like "Jan 2024 to Jun 2024" or "January 2024 - June 2024"
+  const monthNames: { [key: string]: string } = {
+    jan: '01', january: '01', feb: '02', february: '02', mar: '03', march: '03',
+    apr: '04', april: '04', may: '05', jun: '06', june: '06',
+    jul: '07', july: '07', aug: '08', august: '08', sep: '09', september: '09',
+    oct: '10', october: '10', nov: '11', november: '11', dec: '12', december: '12',
+  };
+
+  const rangeMatch = lower.match(/(\w+)\s*(202\d)\s*(?:to|-|through)\s*(\w+)\s*(202\d)/);
+  if (rangeMatch) {
+    const startMonth = monthNames[rangeMatch[1]] || '01';
+    const startYear = rangeMatch[2];
+    const endMonth = monthNames[rangeMatch[3]] || '12';
+    const endYear = rangeMatch[4];
+    return { start: `${startYear}${startMonth}`, end: `${endYear}${endMonth}` };
+  }
+
+  // Match quarter like "Q1 2024"
+  const quarterMatch = lower.match(/q([1-4])\s*(202\d)/);
+  if (quarterMatch) {
+    const quarter = parseInt(quarterMatch[1]);
+    const year = quarterMatch[2];
+    const quarterRanges: { [key: number]: { start: string; end: string } } = {
+      1: { start: '01', end: '03' },
+      2: { start: '04', end: '06' },
+      3: { start: '07', end: '09' },
+      4: { start: '10', end: '12' },
+    };
+    return { start: `${year}${quarterRanges[quarter].start}`, end: `${year}${quarterRanges[quarter].end}` };
+  }
+
+  return undefined;
 }
 
 /**
@@ -452,6 +621,10 @@ export function InlineChatChart({ type, data, title }: InlineChatChartProps) {
 export function detectChartRequest(message: string): ChartType | null {
   const lower = message.toLowerCase();
 
+  // Check for earned value first (more specific)
+  if (lower.includes('earned value') || lower.includes('ev chart') || lower.includes('evm') || lower.includes('cpi') || lower.includes('spi')) {
+    return 'earned-value';
+  }
   if (lower.includes('spend trend') || lower.includes('spending trend') || lower.includes('show me the trend') || lower.includes('monthly spend')) {
     return 'spend-trend';
   }

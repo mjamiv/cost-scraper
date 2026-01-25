@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Weekly Progress Report</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      line-height: 1.6;
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 40px 20px;
+      color: #000;
+      background: #fff;
+    }
+    h1 { font-size: 24px; margin-bottom: 8px; }
+    h2 { font-size: 16px; font-weight: normal; color: #666; margin-bottom: 32px; }
+    h3 { font-size: 18px; margin: 32px 0 16px; border-bottom: 1px solid #000; padding-bottom: 8px; }
+    h4 { font-size: 14px; margin: 24px 0 12px; }
+    p { margin-bottom: 16px; }
+    hr { border: none; border-top: 1px solid #ddd; margin: 32px 0; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; font-size: 14px; }
+    th { background: #000; color: #fff; text-align: left; padding: 10px 12px; font-weight: 500; }
+    td { padding: 10px 12px; border-bottom: 1px solid #ddd; }
+    .value-add { background: #f5f5f5; padding: 12px 16px; border-left: 3px solid #000; margin: 16px 0; }
+    .value-add strong { display: block; margin-bottom: 4px; }
+    ul { margin: 12px 0 12px 24px; }
+    li { margin-bottom: 6px; }
+    .stats { display: flex; gap: 24px; margin: 24px 0; }
+    .stat { text-align: center; }
+    .stat-value { font-size: 32px; font-weight: bold; }
+    .stat-label { font-size: 12px; color: #666; }
+  </style>
+</head>
+<body>
+  <h1>Weekly Progress Report</h1>
+  <h2>[Author Name] | January 20-25, 2026</h2>
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">18</div>
+      <div class="stat-label">COMMITS</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">3</div>
+      <div class="stat-label">DAYS ACTIVE</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">8</div>
+      <div class="stat-label">FEATURES</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">5</div>
+      <div class="stat-label">BUG FIXES</div>
+    </div>
+  </div>
+
+  <hr>
+
+  <h3>Thursday, January 23</h3>
+  <p>The week began with establishing project documentation and developer onboarding materials. A comprehensive CLAUDE.md file was created containing project setup instructions, Snowflake configuration details (including the critical account identifier format with region suffix), and authentication method options for local development.</p>
+
+  <div class="value-add">
+    <strong>Value Add:</strong>
+    New developers can now onboard to the project independently with clear setup instructions, reducing ramp-up time and preventing common configuration errors.
+  </div>
+
+  <hr>
+
+  <h3>Friday, January 24</h3>
+  <p>Friday was the most productive day of the week with 16 commits spanning major feature development, bug fixes, and documentation updates.</p>
+
+  <h4>Architecture & Core Features</h4>
+  <p>The day started with implementing the hierarchical DataTable component with CBS_HIERARCHY-based expand/collapse functionality and the spend analysis chart with dual-axis visualization. This was followed by a major architectural shift to a chatbot-first interface, implementing an AI-powered cost analysis assistant.</p>
+  <p>The backend API was enhanced with chat streaming capabilities, and the frontend received significant UI polish including voice input/output support, inline chart generation, and executive summary features.</p>
+
+  <h4>Bug Fixes & Data Integrity</h4>
+  <ul>
+    <li><strong>Triple-counting fix:</strong> Cost aggregation was incorrectly summing child CBS rows already included in parent totals. Fixed by filtering to ROOT-level rows only.</li>
+    <li><strong>Snowflake string handling:</strong> Numeric values from Snowflake arrive as strings. All formatters now use parseFloat() first.</li>
+    <li><strong>DataTable footer:</strong> Rewrote to use dynamic column iteration, preventing column count mismatches.</li>
+  </ul>
+
+  <h4>Chat Enhancements</h4>
+  <ul>
+    <li>Added user/assistant avatars with timestamps</li>
+    <li>Implemented loading skeleton with shimmer animation</li>
+    <li>Fixed markdown preprocessing for headers, lists, and tables</li>
+    <li>Added FTE calculation domain knowledge to system prompt</li>
+    <li>Included manhours data in AI context for workforce analysis</li>
+  </ul>
+
+  <div class="value-add">
+    <strong>Value Add:</strong>
+    Users now have a professional, AI-powered interface for analyzing cost data with natural language queries. Data integrity issues have been resolved, ensuring accurate financial reporting.
+  </div>
+
+  <hr>
+
+  <h3>Saturday, January 25</h3>
+  <p>The week concluded with adding comprehensive FTE calculations to the AI context. The system now computes Monthly FTE, Weekly FTE, and Average Hourly Rate using a 4-4-5 financial calendar pattern. A summary row with totals and averages was also added to the period table.</p>
+
+  <div class="value-add">
+    <strong>Value Add:</strong>
+    Project managers can now ask the AI about staffing levels and labor rates, receiving accurate FTE calculations based on actual manhours data.
+  </div>
+
+  <hr>
+
+  <h3>Weekly Summary</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Day</th>
+        <th>Theme</th>
+        <th>Key Deliverables</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>Thursday</td>
+        <td>Documentation</td>
+        <td>CLAUDE.md setup guide, Snowflake configuration</td>
+      </tr>
+      <tr>
+        <td>Friday</td>
+        <td>Core Development</td>
+        <td>Hierarchical DataTable, Chat interface, Triple-counting fix</td>
+      </tr>
+      <tr>
+        <td>Saturday</td>
+        <td>Analytics</td>
+        <td>FTE calculations with 4-4-5 calendar</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h4>Key Achievements</h4>
+  <ul>
+    <li>Transitioned to chatbot-first architecture</li>
+    <li>Implemented hierarchical cost breakdown visualization</li>
+    <li>Fixed critical data aggregation bug (triple-counting)</li>
+    <li>Added FTE/labor analytics capabilities</li>
+    <li>Enhanced chat UI with professional design elements</li>
+  </ul>
+
+</body>
+</html>

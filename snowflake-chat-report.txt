@@ -1,0 +1,68 @@
+# Snowflake Cost Scraper - Development Report
+
+## Project Summary
+
+This project establishes a connection to Snowflake CR Cube data for project cost analysis. After exploring multiple authentication approaches, we successfully implemented a solution using Snowsight's built-in worksheets with corporate SSO authentication.
+
+---
+
+## Authentication Journey
+
+### Initial Approach: External Python App
+- **Goal**: FastAPI backend + React frontend on GitHub Pages
+- **Blocker**: Corporate TLS inspection proxy blocked Python's Snowflake SSO handshake
+- **Attempts**: certifi, insecure_mode, SSL bypass - all failed at `/session/authenticator-request`
+
+### Solution: Snowsight Native Worksheets
+- **Why it works**: Runs inside Snowflake infrastructure, uses existing SSO session
+- **No IT involvement required**: No key-pair registration needed
+- **Immediate access**: Queries work directly in browser
+
+---
+
+## Connection Details
+
+| Setting | Value |
+|---------|-------|
+| Account | TB78941 |
+| User | MICHAEL.MARTELLO@KIEWIT.COM |
+| Role | PROD_KDS_CONSUMPTION_SEM_R_AR |
+| Warehouse | PROD_ENT_CONS_BI_BULK_WH |
+
+---
+
+## Data Sources
+
+| Table/View | Schema | Purpose |
+|------------|--------|---------|
+| CR_CUBE_DATA_WBS | PROD_ENT_CONSUMPTION.SEM_VW | Main cost data (JTD, actuals, forecast) |
+| WBS_SNAPSHOT | PROD_ENT_CONSUMPTION.SEM_VW | WBS descriptions, CBS hierarchy |
+| PROJECT_EXPLORER_KDS | PROD_KDS_CONSUMPTION.SEM | Project info, lead districts |
+
+---
+
+## Final Working Query (Chart-Ready)
+
+### SQL Version
+SELECT 
+    TO_DATE(CR.FISCAL_YEAR_MONTH_NO || '01', 'YYYYMMDD') AS MONTH,
+    WBS.CBS_HIERARCHY,
+    CR.WBS_ELEMENT,
+    WBS.WBS_DESCRIPTION,
+    SUM(ACTUAL_COST) AS MONTHLY_SPEND,
+    MAX(JTD_ACTUAL_COST) AS JTD_SPEND,
+    MAX(FORECAST_AMOUNT) AS FORECAST
+FROM PROD_ENT_CONSUMPTION.SEM_VW.CR_CUBE_DATA_WBS CR
+LEFT JOIN PROD_ENT_CONSUMPTION.SEM_VW.WBS_SNAPSHOT WBS
+    ON CR.WBS_ELEMENT = WBS.WBS_ELEMENT
+    AND CR.FISCAL_YEAR_MONTH_NO = WBS.FISCAL_YEAR_MONTH_NO
+LEFT JOIN PROD_KDS_CONSUMPTION.SEM.PROJECT_EXPLORER_KDS PE
+    ON CR.PROJECT_NUMBER = PE.PROJECT_NUMBER
+WHERE CR.PROJECT_NUMBER = '106073'
+  AND CR.FISCAL_YEAR_MONTH_NO >= '202401'
+GROUP BY 
+    CR.FISCAL_YEAR_MONTH_NO,
+    WBS.CBS_HIERARCHY,
+    CR.WBS_ELEMENT,
+    WBS.WBS_DESCRIPTION
+ORDER BY WBS.CBS_HIERARCHY, CR.WBS_ELEMENT, MONTH;

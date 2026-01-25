@@ -4,7 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { CostDataRow } from '../api/types';
 import { ChatMessage, streamChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
 import { generateMarkdownSummary } from '../utils/llmDataFormatter';
-import { InlineChatChart, ChartType, detectChartRequest } from './ChatCharts';
+import { InlineChatChart, ChartType, detectChartRequest, parseDateRange } from './ChatCharts';
 
 interface ExtendedChatMessage extends ChatMessage {
   chartType?: ChartType;
@@ -221,6 +221,7 @@ function AssistantAvatar() {
 
 interface ExtendedChatMessageWithMeta extends ExtendedChatMessage {
   timestamp?: string;
+  dateRange?: { start?: string; end?: string };
 }
 
 // Helper to get formatted timestamp
@@ -517,14 +518,15 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
       }
     }
 
-    // Check if user is asking for a chart
+    // Check if user is asking for a chart and parse date range
     const detectedChart = detectChartRequest(userMessage);
+    const dateRange = parseDateRange(userMessage);
 
     // Normal message flow
     setIsLoading(true);
     const newUserMessage: ExtendedChatMessageWithMeta = { role: 'user', content: userMessage, timestamp };
     setMessages(prev => [...prev, newUserMessage]);
-    setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined, timestamp }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined, timestamp, dateRange }]);
 
     try {
       const dataContext = getDataContext();
@@ -741,7 +743,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                           {/* Render chart if present */}
                           {message.chartType && data.length > 0 && (
                             <div className="mt-4">
-                              <InlineChatChart type={message.chartType} data={data} />
+                              <InlineChatChart type={message.chartType} data={data} dateRange={message.dateRange} />
                             </div>
                           )}
                         </>
@@ -750,7 +752,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                       )
                     ) : message.chartType && data.length > 0 ? (
                       // Chart-only message (no text)
-                      <InlineChatChart type={message.chartType} data={data} />
+                      <InlineChatChart type={message.chartType} data={data} dateRange={message.dateRange} />
                     ) : (
                       <LoadingSkeleton />
                     )}
