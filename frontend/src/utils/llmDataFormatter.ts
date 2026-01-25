@@ -32,6 +32,8 @@ export interface LLMCostSummary {
     totalSpendJTD: number;
     totalForecast: number;
     budgetVariance: number;
+    totalManhours: number;
+    totalManhoursBudget: number;
     status: 'under_budget' | 'on_budget' | 'over_budget';
   };
   byProject: Array<{
@@ -40,12 +42,15 @@ export interface LLMCostSummary {
     jtdSpend: number;
     variance: number;
     percentComplete: number;
+    jtdManhours: number;
   }>;
   byPeriod: Array<{
     period: string;
     periodLabel: string;
     spend: number;
     cumulativeSpend: number;
+    manhours: number;
+    cumulativeManhours: number;
   }>;
   topVarianceItems: Array<{
     project: string;
@@ -126,11 +131,15 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
   let totalBudget = 0;
   let totalSpendJTD = 0;
   let totalForecast = 0;
+  let totalManhours = 0;
+  let totalManhoursBudget = 0;
 
   topLevelRows.forEach(row => {
     totalBudget += parseFloat(String(row.CB_AMT)) || 0;
     totalSpendJTD += parseFloat(String(row.JTD_SPEND)) || 0;
     totalForecast += parseFloat(String(row.FORECAST_AMOUNT)) || 0;
+    totalManhours += parseFloat(String(row.JTD_MH)) || 0;
+    totalManhoursBudget += parseFloat(String(row.CB_MHF)) || 0;
   });
 
   const budgetVariance = totalBudget - totalForecast;
@@ -138,14 +147,15 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
     budgetVariance > 0 ? 'under_budget' : budgetVariance < 0 ? 'over_budget' : 'on_budget';
 
   // Group by project
-  const projectMap = new Map<string, { budget: number; jtdSpend: number; forecast: number }>();
+  const projectMap = new Map<string, { budget: number; jtdSpend: number; forecast: number; jtdManhours: number }>();
 
   topLevelRows.forEach(row => {
     const project = String(row.PROJECT_NUMBER || '');
-    const existing = projectMap.get(project) || { budget: 0, jtdSpend: 0, forecast: 0 };
+    const existing = projectMap.get(project) || { budget: 0, jtdSpend: 0, forecast: 0, jtdManhours: 0 };
     existing.budget += parseFloat(String(row.CB_AMT)) || 0;
     existing.jtdSpend += parseFloat(String(row.JTD_SPEND)) || 0;
     existing.forecast += parseFloat(String(row.FORECAST_AMOUNT)) || 0;
+    existing.jtdManhours += parseFloat(String(row.JTD_MH)) || 0;
     projectMap.set(project, existing);
   });
 
@@ -155,26 +165,35 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
     jtdSpend: values.jtdSpend,
     variance: values.budget - values.forecast,
     percentComplete: values.budget > 0 ? (values.jtdSpend / values.budget) * 100 : 0,
+    jtdManhours: values.jtdManhours,
   }));
 
   // Group by period
-  const periodMap = new Map<string, number>();
+  const periodMap = new Map<string, { spend: number; manhours: number }>();
 
   topLevelRows.forEach(row => {
     const period = String(row.FISCAL_YEAR_MONTH_NO || '');
     const perSpend = parseFloat(String(row.PER_SPEND)) || 0;
-    periodMap.set(period, (periodMap.get(period) || 0) + perSpend);
+    const perMH = parseFloat(String(row.PER_MH)) || 0;
+    const existing = periodMap.get(period) || { spend: 0, manhours: 0 };
+    existing.spend += perSpend;
+    existing.manhours += perMH;
+    periodMap.set(period, existing);
   });
 
-  let cumulative = 0;
+  let cumulativeSpend = 0;
+  let cumulativeMH = 0;
   const byPeriod = sortedPeriods.map(period => {
-    const spend = periodMap.get(period) || 0;
-    cumulative += spend;
+    const data = periodMap.get(period) || { spend: 0, manhours: 0 };
+    cumulativeSpend += data.spend;
+    cumulativeMH += data.manhours;
     return {
       period,
       periodLabel: formatPeriodLabel(period),
-      spend,
-      cumulativeSpend: cumulative,
+      spend: data.spend,
+      cumulativeSpend,
+      manhours: data.manhours,
+      cumulativeManhours: cumulativeMH,
     };
   });
 
@@ -206,6 +225,8 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
       totalSpendJTD,
       totalForecast,
       budgetVariance,
+      totalManhours,
+      totalManhoursBudget,
       status,
     },
     byProject,
@@ -224,6 +245,10 @@ export function generateMarkdownSummary(data: CostDataRow[]): string {
     return '# Cost Report Summary\n\nNo data available.';
   }
 
+  const formatNumber = (value: number): string => {
+    return new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(value);
+  };
+
   const lines: string[] = [
     '# Cost Report Summary',
     '',
@@ -239,29 +264,31 @@ export function generateMarkdownSummary(data: CostDataRow[]): string {
     `| Spend to Date | ${formatCurrency(summary.summary.totalSpendJTD)} |`,
     `| Forecast Total | ${formatCurrency(summary.summary.totalForecast)} |`,
     `| Budget Variance | ${formatCurrency(summary.summary.budgetVariance)} |`,
+    `| JTD Manhours | ${formatNumber(summary.summary.totalManhours)} |`,
+    `| Budget Manhours | ${formatNumber(summary.summary.totalManhoursBudget)} |`,
     `| Status | ${summary.summary.status.replace('_', ' ').toUpperCase()} |`,
     '',
     '## By Project',
     '',
-    '| Project | Budget | JTD Spend | Variance | % Complete |',
-    '|---------|--------|-----------|----------|------------|',
+    '| Project | Budget | JTD Spend | Variance | % Complete | JTD MH |',
+    '|---------|--------|-----------|----------|------------|--------|',
   ];
 
   summary.byProject.forEach(project => {
     lines.push(
-      `| ${project.projectNumber} | ${formatCurrency(project.budget)} | ${formatCurrency(project.jtdSpend)} | ${formatCurrency(project.variance)} | ${project.percentComplete.toFixed(1)}% |`
+      `| ${project.projectNumber} | ${formatCurrency(project.budget)} | ${formatCurrency(project.jtdSpend)} | ${formatCurrency(project.variance)} | ${project.percentComplete.toFixed(1)}% | ${formatNumber(project.jtdManhours)} |`
     );
   });
 
   lines.push('');
   lines.push('## Spending by Period');
   lines.push('');
-  lines.push('| Period | Spend | Cumulative |');
-  lines.push('|--------|-------|------------|');
+  lines.push('| Period | Spend | Cumulative | Manhours | Cumulative MH |');
+  lines.push('|--------|-------|------------|----------|---------------|');
 
   summary.byPeriod.forEach(period => {
     lines.push(
-      `| ${period.periodLabel} | ${formatCurrency(period.spend)} | ${formatCurrency(period.cumulativeSpend)} |`
+      `| ${period.periodLabel} | ${formatCurrency(period.spend)} | ${formatCurrency(period.cumulativeSpend)} | ${formatNumber(period.manhours)} | ${formatNumber(period.cumulativeManhours)} |`
     );
   });
 
