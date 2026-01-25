@@ -17,17 +17,18 @@ import {
 } from 'recharts';
 import { CostDataRow } from '../api/types';
 
-// Brand colors
+// Brand colors - gold/black theme
 const COLORS = {
-  teal: '#00d4aa',
-  purple: '#8b5cf6',
+  gold: '#d4a418',
+  goldLight: '#f5d76e',
+  purple: '#a855f7',
   blue: '#3b82f6',
   amber: '#f59e0b',
   red: '#ef4444',
-  emerald: '#10b981',
+  emerald: '#22c55e',
 };
 
-const PIE_COLORS = [COLORS.teal, COLORS.blue, COLORS.purple, COLORS.amber, COLORS.emerald, COLORS.red];
+const PIE_COLORS = [COLORS.gold, COLORS.blue, COLORS.purple, COLORS.amber, COLORS.emerald, COLORS.red];
 
 function formatCurrency(value: number): string {
   if (Math.abs(value) >= 1000000) {
@@ -53,19 +54,18 @@ function DarkTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload || payload.length === 0) return null;
 
   return (
-    <div className="bg-midnight-950 border border-accent/40 rounded-xl shadow-2xl p-4 text-xs"
-         style={{ boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 212, 170, 0.1)' }}>
-      <p className="text-accent font-semibold mb-3 pb-2 border-b border-midnight-700">{label}</p>
+    <div className="bg-neutral-900 border border-neutral-700 rounded-lg shadow-2xl p-4 text-xs">
+      <p className="text-gold font-semibold mb-3 pb-2 border-b border-neutral-700">{label}</p>
       {payload.map((entry, index) => (
         <div key={index} className="flex items-center justify-between gap-6 py-1">
-          <span className="flex items-center gap-2 text-slate-300">
+          <span className="flex items-center gap-2 text-neutral-300">
             <span
               className="w-3 h-3 rounded"
               style={{ backgroundColor: entry.color }}
             />
             {entry.name}
           </span>
-          <span className="text-slate-100 font-semibold">
+          <span className="text-white font-semibold">
             {formatCurrency(entry.value as number)}
           </span>
         </div>
@@ -132,12 +132,12 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
       <div className="chat-chart-body">
         <ResponsiveContainer width="100%" height={280}>
           <ComposedChart data={chartData} margin={{ top: 15, right: 45, left: 5, bottom: 30 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334e68" vertical={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
             <XAxis
               dataKey="period"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: '#334e68' }}
+              axisLine={{ stroke: '#404040' }}
               angle={-45}
               textAnchor="end"
               interval={Math.max(0, Math.floor(chartData.length / 10))}
@@ -145,7 +145,7 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
             />
             <YAxis
               yAxisId="left"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               tickFormatter={formatCurrency}
@@ -154,7 +154,7 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
             <YAxis
               yAxisId="right"
               orientation="right"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
               tickLine={false}
               axisLine={false}
               tickFormatter={formatCurrency}
@@ -168,7 +168,7 @@ export function SpendTrendChart({ data, title = 'Spend Trend' }: ChartProps) {
               iconType="rect"
               wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
             />
-            <Bar yAxisId="left" dataKey="spend" name="Period Spend" fill={COLORS.teal} radius={[3, 3, 0, 0]} />
+            <Bar yAxisId="left" dataKey="spend" name="Period Spend" fill={COLORS.gold} radius={[3, 3, 0, 0]} />
             <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke={COLORS.purple} strokeWidth={2.5} dot={false} />
           </ComposedChart>
         </ResponsiveContainer>
@@ -221,18 +221,18 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
       <div className="chat-chart-body">
         <ResponsiveContainer width="100%" height={Math.max(220, chartData.length * 40)}>
           <BarChart data={chartData} layout="vertical" margin={{ top: 15, right: 40, left: 70, bottom: 15 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334e68" horizontal={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: '#334e68' }}
+              axisLine={{ stroke: '#404040' }}
               tickFormatter={formatCurrency}
             />
             <YAxis
               type="category"
               dataKey="project"
-              tick={{ fill: '#cbd5e1', fontSize: 11, fontWeight: 500 }}
+              tick={{ fill: '#d4d4d4', fontSize: 11, fontWeight: 500 }}
               tickLine={false}
               axisLine={false}
               width={65}
@@ -245,7 +245,7 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
               iconType="rect"
               wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
             />
-            <Bar dataKey="spent" name="Spent" stackId="a" fill={COLORS.teal} radius={[0, 3, 3, 0]} />
+            <Bar dataKey="spent" name="Spent" stackId="a" fill={COLORS.gold} radius={[0, 3, 3, 0]} />
             <Bar dataKey="remaining" name="Remaining" stackId="a" fill={COLORS.blue} opacity={0.6} radius={[0, 3, 3, 0]} />
           </BarChart>
         </ResponsiveContainer>
@@ -310,8 +310,8 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
             <Tooltip
               formatter={(value: number) => [formatCurrency(value), 'Budget']}
               contentStyle={{
-                backgroundColor: '#0a1929',
-                border: '1px solid rgba(0, 212, 170, 0.3)',
+                backgroundColor: '#171717',
+                border: '1px solid #404040',
                 borderRadius: '8px',
                 fontSize: '12px'
               }}
@@ -325,8 +325,8 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
             />
           </PieChart>
         </ResponsiveContainer>
-        <div className="text-center text-xs text-slate-400 mt-2 pb-2">
-          Total Budget: <span className="text-accent font-semibold">{formatCurrency(total)}</span>
+        <div className="text-center text-xs text-neutral-400 mt-2 pb-2">
+          Total Budget: <span className="text-gold font-semibold">{formatCurrency(total)}</span>
         </div>
       </div>
     </div>
@@ -375,18 +375,18 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
       <div className="chat-chart-body">
         <ResponsiveContainer width="100%" height={Math.max(220, chartData.length * 32)}>
           <BarChart data={chartData} layout="vertical" margin={{ top: 15, right: 40, left: 90, bottom: 15 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334e68" horizontal={false} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" horizontal={false} />
             <XAxis
               type="number"
-              tick={{ fill: '#94a3b8', fontSize: 11 }}
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
               tickLine={false}
-              axisLine={{ stroke: '#334e68' }}
+              axisLine={{ stroke: '#404040' }}
               tickFormatter={formatCurrency}
             />
             <YAxis
               type="category"
               dataKey="name"
-              tick={{ fill: '#cbd5e1', fontSize: 10 }}
+              tick={{ fill: '#d4d4d4', fontSize: 10 }}
               tickLine={false}
               axisLine={false}
               width={85}
@@ -395,7 +395,7 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
             <Bar
               dataKey="variance"
               name="Variance"
-              fill={COLORS.teal}
+              fill={COLORS.gold}
               radius={[0, 4, 4, 0]}
             >
               {chartData.map((entry, index) => (

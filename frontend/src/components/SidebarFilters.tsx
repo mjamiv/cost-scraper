@@ -7,7 +7,7 @@ interface SidebarFiltersProps {
   isLoading: boolean;
 }
 
-const DEFAULT_PROJECTS = '106049,104831,105553,104834,106073,106345,105119,104980';
+const DEFAULT_PROJECTS = '106073';
 
 export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading }: SidebarFiltersProps) {
   const handleProjectsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {

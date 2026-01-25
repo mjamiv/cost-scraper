@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { useState, useRef, useEffect, useCallback, ReactNode } from 'react';
+import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CostDataRow } from '../api/types';
 import { ChatMessage, streamChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
@@ -8,6 +8,104 @@ import { generateMarkdownSummary } from '../utils/llmDataFormatter';
 interface ChatBotProps {
   data: CostDataRow[];
 }
+
+// Preprocess markdown to fix table formatting issues
+function preprocessMarkdown(content: string): string {
+  const lines = content.split('\n');
+  const processed: string[] = [];
+  let inTable = false;
+  let tableLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const isPipeRow = (trimmed.startsWith('|') && trimmed.endsWith('|')) ||
+      (trimmed.includes('|') && trimmed.split('|').length >= 3);
+
+    if (isPipeRow) {
+      if (!inTable) {
+        inTable = true;
+        tableLines = [];
+      }
+      tableLines.push(trimmed);
+    } else {
+      if (inTable) {
+        if (tableLines.length > 0) {
+          const hasSeparator = tableLines.some(l => /^\|[\s\-:|]+\|$/.test(l) || /^[\s\-:|]+$/.test(l.replace(/\|/g, '')));
+          if (!hasSeparator && tableLines.length > 0) {
+            const headerRow = tableLines[0];
+            const colCount = headerRow.split('|').filter(c => c.trim()).length;
+            const separator = '|' + Array(colCount).fill('---').join('|') + '|';
+            tableLines.splice(1, 0, separator);
+          }
+          processed.push('');
+          processed.push(...tableLines);
+          processed.push('');
+        }
+        inTable = false;
+        tableLines = [];
+      }
+      processed.push(line);
+    }
+  }
+
+  if (inTable && tableLines.length > 0) {
+    const hasSeparator = tableLines.some(l => /^\|[\s\-:|]+\|$/.test(l));
+    if (!hasSeparator && tableLines.length > 0) {
+      const headerRow = tableLines[0];
+      const colCount = headerRow.split('|').filter(c => c.trim()).length;
+      const separator = '|' + Array(colCount).fill('---').join('|') + '|';
+      tableLines.splice(1, 0, separator);
+    }
+    processed.push('');
+    processed.push(...tableLines);
+    processed.push('');
+  }
+
+  return processed.join('\n');
+}
+
+// Custom paragraph component that handles table-like content
+function TableAwareParagraph({ children }: { children?: ReactNode }) {
+  const content = children?.toString() || '';
+
+  if (content.includes('|') && content.split('|').length >= 4) {
+    const rows = content.split(/\|\||\n/).filter(r => r.trim());
+    if (rows.length >= 2) {
+      const tableRows = rows.map(row => {
+        return row.split('|').filter(cell => cell.trim()).map(cell => cell.trim());
+      });
+
+      if (tableRows.length > 0 && tableRows[0].length >= 2) {
+        return (
+          <table>
+            <thead>
+              <tr>
+                {tableRows[0].map((cell, i) => (
+                  <th key={i}>{cell}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.slice(1).map((row, rowIdx) => (
+                <tr key={rowIdx}>
+                  {row.map((cell, cellIdx) => (
+                    <td key={cellIdx}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+      }
+    }
+  }
+
+  return <p>{children}</p>;
+}
+
+const markdownComponents: Components = {
+  p: TableAwareParagraph,
+};
 
 // Analysis categories with targeted prompts
 const ANALYSIS_CATEGORIES = [
@@ -498,8 +596,11 @@ export function ChatBot({ data }: ChatBotProps) {
                       {message.content ? (
                         message.role === 'assistant' ? (
                           <div className="chat-markdown">
-                            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                              {message.content}
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={markdownComponents}
+                            >
+                              {preprocessMarkdown(message.content)}
                             </ReactMarkdown>
                           </div>
                         ) : (

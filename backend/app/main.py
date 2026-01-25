@@ -454,9 +454,9 @@ async def api_chat(request: ChatRequest):
 
         # Call OpenAI API
         response = client.chat.completions.create(
-            model="gpt-4o",
+            model="gpt-5.2",
             messages=messages,
-            max_tokens=1000,
+            max_completion_tokens=1000,
             temperature=0.3
         )
 
@@ -498,9 +498,9 @@ async def api_chat_stream(request: ChatRequest):
             messages.append({"role": "user", "content": request.message})
 
             stream = client.chat.completions.create(
-                model="gpt-4o",
+                model="gpt-5.2",
                 messages=messages,
-                max_tokens=1000,
+                max_completion_tokens=1000,
                 temperature=0.3,
                 stream=True
             )

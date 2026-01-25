@@ -26,9 +26,9 @@ interface DataTableProps {
 const COLUMN_GROUPS = [
   { id: 'identification', label: 'Identification', columns: ['expander', 'FISCAL_YEAR_MONTH_NO', 'PROJECT_NUMBER', 'LEAD_DISTRICT', 'WBS_ELEMENT', 'CBS_HIERARCHY', 'WBS_DESCRIPTION'], className: 'group-identification' },
   { id: 'budget', label: 'Budget', columns: ['CB_QTY', 'CB_AMT', 'CB_UNIT_COST'], className: 'group-budget' },
-  { id: 'period', label: 'Period', columns: ['PER_QTY', 'PER_PERC_COMP', 'PER_SPEND'], className: 'group-period' },
-  { id: 'jtd', label: 'JTD', columns: ['JTD_QTY', 'JTD_PERC_COMP', 'JTD_SPEND'], className: 'group-jtd' },
-  { id: 'forecast', label: 'Forecast', columns: ['FORECAST_AMOUNT', 'FORECAST_REMAINING_AMOUNT', 'FORECAST_CHANGE', 'SL_VARIANCE'], className: 'group-forecast' },
+  { id: 'period', label: 'Period', columns: ['PER_QTY', 'PER_PERC_COMP', 'PER_PF', 'PER_CF', 'PER_SPEND'], className: 'group-period' },
+  { id: 'jtd', label: 'JTD', columns: ['JTD_QTY', 'JTD_PERC_COMP', 'JTD_PF', 'JTD_CF', 'JTD_SPEND'], className: 'group-jtd' },
+  { id: 'forecast', label: 'Forecast', columns: ['FORECAST_PF', 'FORECAST_CF', 'FORECAST_AMOUNT', 'FORECAST_REMAINING_AMOUNT', 'FORECAST_CHANGE', 'SL_VARIANCE'], className: 'group-forecast' },
 ];
 
 // Default hidden columns
@@ -38,6 +38,8 @@ const DEFAULT_HIDDEN_COLUMNS: Record<string, boolean> = {
   CB_UNIT_COST: false,
   PER_QTY: false,
   JTD_QTY: false,
+  FORECAST_REMAINING_PF: false,
+  FORECAST_REMAINING_CF: false,
 };
 
 function formatNumber(value: number | null, decimals = 2): string {
@@ -78,6 +80,23 @@ function formatVariance(value: number | null): { text: string; className: string
     return { text: `▼ ${formatted}`, className: 'variance-unfavorable' };
   }
   return { text: formatted, className: 'variance-neutral' };
+}
+
+// PF/CF formatting - values > 1.0 are unfavorable (over budget/behind schedule)
+function formatFactor(value: number | null): { text: string; className: string } {
+  if (value === null || value === undefined) {
+    return { text: '—', className: 'text-slate-500' };
+  }
+
+  const formatted = value.toFixed(2);
+
+  if (value > 1.0) {
+    return { text: formatted, className: 'text-red-400' };
+  }
+  if (value < 1.0) {
+    return { text: formatted, className: 'text-emerald-400' };
+  }
+  return { text: formatted, className: 'text-slate-300' };
 }
 
 export function DataTable({ data, isLoading }: DataTableProps) {
@@ -274,6 +293,26 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         size: 90,
       },
       {
+        header: 'Per PF',
+        accessorKey: 'PER_PF',
+        cell: ({ getValue }) => {
+          const { text, className } = formatFactor(getValue() as number | null);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
+        },
+        meta: { group: 'period', align: 'right' },
+        size: 70,
+      },
+      {
+        header: 'Per CF',
+        accessorKey: 'PER_CF',
+        cell: ({ getValue }) => {
+          const { text, className } = formatFactor(getValue() as number | null);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
+        },
+        meta: { group: 'period', align: 'right' },
+        size: 70,
+      },
+      {
         header: 'Per Spend',
         accessorKey: 'PER_SPEND',
         cell: ({ getValue }) => (
@@ -303,6 +342,26 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         size: 90,
       },
       {
+        header: 'JTD PF',
+        accessorKey: 'JTD_PF',
+        cell: ({ getValue }) => {
+          const { text, className } = formatFactor(getValue() as number | null);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
+        },
+        meta: { group: 'jtd', align: 'right' },
+        size: 70,
+      },
+      {
+        header: 'JTD CF',
+        accessorKey: 'JTD_CF',
+        cell: ({ getValue }) => {
+          const { text, className } = formatFactor(getValue() as number | null);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
+        },
+        meta: { group: 'jtd', align: 'right' },
+        size: 70,
+      },
+      {
         header: 'JTD Spend',
         accessorKey: 'JTD_SPEND',
         cell: ({ getValue }) => (
@@ -313,6 +372,26 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       },
 
       // Forecast columns
+      {
+        header: 'Fcst PF',
+        accessorKey: 'FORECAST_PF',
+        cell: ({ getValue }) => {
+          const { text, className } = formatFactor(getValue() as number | null);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
+        },
+        meta: { group: 'forecast', align: 'right' },
+        size: 70,
+      },
+      {
+        header: 'Fcst CF',
+        accessorKey: 'FORECAST_CF',
+        cell: ({ getValue }) => {
+          const { text, className } = formatFactor(getValue() as number | null);
+          return <span className={`text-right tabular-nums block ${className}`}>{text}</span>;
+        },
+        meta: { group: 'forecast', align: 'right' },
+        size: 70,
+      },
       {
         header: 'Fcst Amount',
         accessorKey: 'FORECAST_AMOUNT',
@@ -467,10 +546,16 @@ export function DataTable({ data, isLoading }: DataTableProps) {
     CB_UNIT_COST: 'CB Unit Cost',
     PER_QTY: 'Period Qty',
     PER_PERC_COMP: 'Period % Complete',
+    PER_PF: 'Period PF',
+    PER_CF: 'Period CF',
     PER_SPEND: 'Period Spend',
     JTD_QTY: 'JTD Qty',
     JTD_PERC_COMP: 'JTD % Complete',
+    JTD_PF: 'JTD PF',
+    JTD_CF: 'JTD CF',
     JTD_SPEND: 'JTD Spend',
+    FORECAST_PF: 'Forecast PF',
+    FORECAST_CF: 'Forecast CF',
     FORECAST_AMOUNT: 'Forecast Amount',
     FORECAST_REMAINING_AMOUNT: 'Forecast Remaining',
     FORECAST_CHANGE: 'Forecast Change',
@@ -708,16 +793,22 @@ export function DataTable({ data, isLoading }: DataTableProps) {
               {/* Period columns */}
               {columnVisibility.PER_QTY !== false && <td></td>}
               {columnVisibility.PER_PERC_COMP !== false && <td></td>}
+              {columnVisibility.PER_PF !== false && <td></td>}
+              {columnVisibility.PER_CF !== false && <td></td>}
               {columnVisibility.PER_SPEND !== false && (
                 <td className="text-right tabular-nums">{formatCurrency(totals.PER_SPEND)}</td>
               )}
               {/* JTD columns */}
               {columnVisibility.JTD_QTY !== false && <td></td>}
               {columnVisibility.JTD_PERC_COMP !== false && <td></td>}
+              {columnVisibility.JTD_PF !== false && <td></td>}
+              {columnVisibility.JTD_CF !== false && <td></td>}
               {columnVisibility.JTD_SPEND !== false && (
                 <td className="text-right tabular-nums">{formatCurrency(totals.JTD_SPEND)}</td>
               )}
               {/* Forecast columns */}
+              {columnVisibility.FORECAST_PF !== false && <td></td>}
+              {columnVisibility.FORECAST_CF !== false && <td></td>}
               {columnVisibility.FORECAST_AMOUNT !== false && (
                 <td className="text-right tabular-nums">{formatCurrency(totals.FORECAST_AMOUNT)}</td>
               )}

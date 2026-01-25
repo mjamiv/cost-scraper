@@ -39,9 +39,9 @@ export default {
           600: '#ee5a5a',
         },
         'gold': {
-          DEFAULT: '#ffd93d',
-          500: '#ffd93d',
-          600: '#f5c800',
+          DEFAULT: '#d4a418',
+          light: '#f5d76e',
+          dark: '#9a7611',
         }
       },
       fontFamily: {

@@ -1,5 +1,5 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
-import ReactMarkdown from 'react-markdown';
+import { useState, useRef, useEffect, useCallback, ReactNode } from 'react';
+import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CostDataRow } from '../api/types';
 import { ChatMessage, streamChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
@@ -9,6 +9,119 @@ import { InlineChatChart, ChartType, detectChartRequest } from './ChatCharts';
 interface ExtendedChatMessage extends ChatMessage {
   chartType?: ChartType;
 }
+
+// Preprocess markdown to fix table formatting issues
+function preprocessMarkdown(content: string): string {
+  // Check if content has pipe characters that look like a table but aren't properly formatted
+  const lines = content.split('\n');
+  const processed: string[] = [];
+  let inTable = false;
+  let tableLines: string[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // Detect table rows (lines that start and end with pipes or have multiple pipes)
+    const isPipeRow = (trimmed.startsWith('|') && trimmed.endsWith('|')) ||
+      (trimmed.includes('|') && trimmed.split('|').length >= 3);
+
+    if (isPipeRow) {
+      if (!inTable) {
+        inTable = true;
+        tableLines = [];
+      }
+      tableLines.push(trimmed);
+    } else {
+      if (inTable) {
+        // End of table - process collected table lines
+        if (tableLines.length > 0) {
+          // Check if we have a separator row
+          const hasSeparator = tableLines.some(l => /^\|[\s\-:|]+\|$/.test(l) || /^[\s\-:|]+$/.test(l.replace(/\|/g, '')));
+
+          if (!hasSeparator && tableLines.length > 0) {
+            // Insert separator after first row
+            const headerRow = tableLines[0];
+            const colCount = headerRow.split('|').filter(c => c.trim()).length;
+            const separator = '|' + Array(colCount).fill('---').join('|') + '|';
+            tableLines.splice(1, 0, separator);
+          }
+
+          processed.push(''); // Add blank line before table
+          processed.push(...tableLines);
+          processed.push(''); // Add blank line after table
+        }
+        inTable = false;
+        tableLines = [];
+      }
+      processed.push(line);
+    }
+  }
+
+  // Handle case where content ends with a table
+  if (inTable && tableLines.length > 0) {
+    const hasSeparator = tableLines.some(l => /^\|[\s\-:|]+\|$/.test(l));
+    if (!hasSeparator && tableLines.length > 0) {
+      const headerRow = tableLines[0];
+      const colCount = headerRow.split('|').filter(c => c.trim()).length;
+      const separator = '|' + Array(colCount).fill('---').join('|') + '|';
+      tableLines.splice(1, 0, separator);
+    }
+    processed.push('');
+    processed.push(...tableLines);
+    processed.push('');
+  }
+
+  return processed.join('\n');
+}
+
+// Custom paragraph component that handles table-like content in paragraphs
+function TableAwareParagraph({ children }: { children?: ReactNode }) {
+  // Check if children contains a string with table-like content
+  const content = children?.toString() || '';
+
+  // If the paragraph contains pipe characters that look like a table
+  if (content.includes('|') && content.split('|').length >= 4) {
+    // Split by || or | and try to render as a simple table
+    const rows = content.split(/\|\||\n/).filter(r => r.trim());
+
+    if (rows.length >= 2) {
+      // Parse as table
+      const tableRows = rows.map(row => {
+        return row.split('|').filter(cell => cell.trim()).map(cell => cell.trim());
+      });
+
+      if (tableRows.length > 0 && tableRows[0].length >= 2) {
+        return (
+          <table>
+            <thead>
+              <tr>
+                {tableRows[0].map((cell, i) => (
+                  <th key={i}>{cell}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {tableRows.slice(1).map((row, rowIdx) => (
+                <tr key={rowIdx}>
+                  {row.map((cell, cellIdx) => (
+                    <td key={cellIdx}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        );
+      }
+    }
+  }
+
+  return <p>{children}</p>;
+}
+
+// Custom components for ReactMarkdown
+const markdownComponents: Components = {
+  p: TableAwareParagraph,
+};
 
 interface ChatInterfaceProps {
   data: CostDataRow[];
@@ -372,13 +485,13 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
     const timestamp = new Date().toLocaleString();
 
     if (format === 'markdown') {
-      content = `# northstar.bd Chat Export\n\n**Exported:** ${timestamp}\n\n---\n\n`;
+      content = `# northstar.cost-chat Export\n\n**Exported:** ${timestamp}\n\n---\n\n`;
       messages.forEach(msg => {
         const role = msg.role === 'user' ? '**You**' : '**Analyst**';
         content += `${role}:\n${msg.content}\n\n---\n\n`;
       });
     } else {
-      content = `northstar.bd Chat Export\nExported: ${timestamp}\n\n`;
+      content = `northstar.cost-chat Export\nExported: ${timestamp}\n\n`;
       messages.forEach(msg => {
         const role = msg.role === 'user' ? 'You' : 'Analyst';
         content += `${role}:\n${msg.content}\n\n`;
@@ -397,11 +510,6 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
     setShowExportMenu(false);
   };
 
-  const handlePromptClick = (prompt: string) => {
-    setInput(prompt);
-    inputRef.current?.focus();
-  };
-
   // Calculate data summary
   const dataSummary = data.length > 0 ? {
     projects: new Set(data.map(r => r.PROJECT_NUMBER)).size,
@@ -410,120 +518,16 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
 
   return (
     <div className="chat-container">
-      {/* Chat Header Actions */}
-      <div className="chat-header-bar">
-        <div className="flex items-center gap-2">
-          {dataSummary && (
-            <span className="text-xs text-slate-400">
-              {dataSummary.projects} projects · {dataSummary.records.toLocaleString()} records
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1">
-          {/* Quick Chart Buttons */}
-          {data.length > 0 && (
-            <div className="flex items-center gap-1 mr-2 pr-2 border-r border-midnight-700">
-              <button
-                onClick={() => addChartMessage('spend-trend', 'Spend Trend')}
-                className="chat-action-btn"
-                title="Spend Trend Chart"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </button>
-              <button
-                onClick={() => addChartMessage('project-comparison', 'Project Comparison')}
-                className="chat-action-btn"
-                title="Project Comparison"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 10h16M4 14h16M4 18h16" />
-                </svg>
-              </button>
-              <button
-                onClick={() => addChartMessage('budget-pie', 'Budget Allocation')}
-                className="chat-action-btn"
-                title="Budget Allocation"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.488 9H15V3.512A9.025 9.025 0 0120.488 9z" />
-                </svg>
-              </button>
-            </div>
-          )}
-
-          {/* Voice Toggle */}
-          <button
-            onClick={() => setVoiceEnabled(!voiceEnabled)}
-            className={`chat-action-btn ${voiceEnabled ? 'active' : ''}`}
-            title={voiceEnabled ? 'Voice responses ON' : 'Voice responses OFF'}
-          >
-            {voiceEnabled ? (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
-              </svg>
-            )}
-          </button>
-
-          {/* Export Menu */}
-          <div className="relative">
-            <button
-              onClick={() => setShowExportMenu(!showExportMenu)}
-              className="chat-action-btn"
-              title="Export conversation"
-              disabled={messages.length === 0}
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-            </button>
-            {showExportMenu && (
-              <div className="absolute right-0 top-full mt-1 bg-midnight-800 border border-midnight-600 rounded-lg shadow-xl z-50 py-1 min-w-[140px]">
-                <button
-                  onClick={() => handleExportChat('markdown')}
-                  className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-midnight-700"
-                >
-                  Export as Markdown
-                </button>
-                <button
-                  onClick={() => handleExportChat('text')}
-                  className="w-full px-3 py-2 text-left text-sm text-slate-300 hover:bg-midnight-700"
-                >
-                  Export as Text
-                </button>
-              </div>
-            )}
-          </div>
-
-          <button
-            onClick={handleClear}
-            className="chat-action-btn"
-            title="Clear chat"
-          >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
-      </div>
-
       {/* Playing Indicator */}
       {isPlaying && (
         <div className="chat-playing-indicator">
-          <div className="flex items-center gap-2 text-accent text-sm">
+          <div className="flex items-center gap-2 text-gold text-sm">
             <svg className="w-4 h-4 animate-pulse" fill="currentColor" viewBox="0 0 24 24">
               <path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/>
             </svg>
             <span>Speaking...</span>
           </div>
-          <button onClick={stopAudio} className="text-accent hover:text-accent/80 text-xs font-medium">
+          <button onClick={stopAudio} className="text-gold hover:text-gold/80 text-xs font-medium">
             Stop
           </button>
         </div>
@@ -533,13 +537,9 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
       <div className="chat-messages">
         {messages.length === 0 ? (
           <div className="chat-welcome-centered">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-accent/20 to-blue-500/20 flex items-center justify-center mx-auto mb-6">
-              <svg className="w-8 h-8 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-              </svg>
-            </div>
-            <h2 className="text-xl font-semibold text-slate-100 mb-2">Welcome to northstar.bd</h2>
-            <p className="text-slate-400 mb-6 max-w-md">
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Northstar" className="w-20 h-20 mx-auto mb-6" />
+            <h2 className="text-xl font-semibold text-white mb-2">Chat with Cost</h2>
+            <p className="text-neutral-400 mb-6 max-w-md">
               Your cost analysis assistant. Ask about budgets, variances, forecasts, and spending trends.
             </p>
 
@@ -551,11 +551,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                     <button
                       key={cat.id}
                       onClick={() => setActiveCategory(activeCategory === cat.id ? null : cat.id)}
-                      className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                        activeCategory === cat.id
-                          ? 'bg-accent text-midnight-950'
-                          : 'bg-midnight-700 text-slate-300 hover:bg-midnight-600'
-                      }`}
+                      className={`category-btn ${activeCategory === cat.id ? 'active' : ''}`}
                     >
                       {cat.icon} {cat.label}
                     </button>
@@ -568,7 +564,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                     {ANALYSIS_CATEGORIES.find(c => c.id === activeCategory)?.prompts.map((prompt, i) => (
                       <button
                         key={i}
-                        onClick={() => handlePromptClick(prompt)}
+                        onClick={() => handleSendMessage(prompt)}
                         className="chat-suggestion"
                       >
                         {prompt}
@@ -580,9 +576,9 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                 {/* Quick Start Prompts */}
                 {!activeCategory && (
                   <div className="space-y-2 max-w-md mx-auto">
-                    <p className="text-xs text-slate-500 uppercase tracking-wide mb-3">Quick Start</p>
+                    <p className="text-xs text-neutral-500 uppercase tracking-wide mb-3">Quick Start</p>
                     <button
-                      onClick={() => handlePromptClick('Give me an executive summary of the current cost status')}
+                      onClick={() => handleSendMessage('Give me an executive summary of the current cost status')}
                       className="chat-suggestion"
                     >
                       📊 Executive Summary
@@ -594,7 +590,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                       📈 Show Spend Trend Chart
                     </button>
                     <button
-                      onClick={() => handlePromptClick('/help')}
+                      onClick={() => handleSendMessage('/help')}
                       className="chat-suggestion"
                     >
                       💡 Show available commands
@@ -603,10 +599,10 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                 )}
               </>
             ) : (
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-4 text-sm text-amber-300 max-w-md mx-auto">
+              <div className="no-data-notice">
                 <p className="font-medium mb-1">No data loaded</p>
-                <p className="text-amber-300/70">
-                  Open the sidebar filters or type <code className="bg-midnight-800 px-1 rounded">/show filters</code> to load project data.
+                <p className="opacity-70">
+                  Open the sidebar filters or type <code>/show filters</code> to load project data.
                 </p>
               </div>
             )}
@@ -623,8 +619,11 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                     message.role === 'assistant' ? (
                       <>
                         <div className="chat-markdown">
-                          <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                            {message.content}
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm]}
+                            components={markdownComponents}
+                          >
+                            {preprocessMarkdown(message.content)}
                           </ReactMarkdown>
                         </div>
                         {/* Render chart if present */}
@@ -651,7 +650,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                   {message.role === 'assistant' && message.content && (
                     <button
                       onClick={() => handleCopyMessage(message.content)}
-                      className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-midnight-600 rounded text-slate-400 hover:text-slate-200"
+                      className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-neutral-700 rounded text-neutral-400 hover:text-white"
                       title="Copy message"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -667,53 +666,125 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
         )}
       </div>
 
-      {/* Input */}
-      <div className="chat-input-area">
-        {/* Voice Record Button */}
-        <button
-          onClick={isRecording ? stopRecording : startRecording}
-          disabled={isLoading}
-          className={`chat-voice-btn ${isRecording ? 'recording' : ''}`}
-          title={isRecording ? 'Stop recording' : 'Voice input'}
-        >
-          {isRecording ? (
-            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-              <rect x="6" y="6" width="12" height="12" rx="2" />
-            </svg>
-          ) : (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-            </svg>
-          )}
-        </button>
+      {/* Input Area with Controls */}
+      <div className="chat-input-wrapper">
+        <div className="chat-input-container">
+          {/* Voice Record Button */}
+          <button
+            onClick={isRecording ? stopRecording : startRecording}
+            disabled={isLoading}
+            className={`chat-voice-btn ${isRecording ? 'recording' : ''}`}
+            title={isRecording ? 'Stop recording' : 'Voice input'}
+          >
+            {isRecording ? (
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                <rect x="6" y="6" width="12" height="12" rx="2" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+            )}
+          </button>
 
-        <input
-          ref={inputRef}
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={isRecording ? 'Listening...' : 'Ask about costs, or try /chart spend, /help'}
-          className="chat-input"
-          disabled={isLoading || isRecording}
-        />
+          <input
+            ref={inputRef}
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={isRecording ? 'Listening...' : 'Ask about costs, or try /chart spend, /help'}
+            className="chat-input"
+            disabled={isLoading || isRecording}
+          />
 
-        <button
-          onClick={handleSend}
-          disabled={!input.trim() || isLoading}
-          className="chat-send-btn"
-        >
-          {isLoading ? (
-            <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          <button
+            onClick={handleSend}
+            disabled={!input.trim() || isLoading}
+            className="chat-send-btn"
+          >
+            {isLoading ? (
+              <svg className="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+            ) : (
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+              </svg>
+            )}
+          </button>
+
+          {/* Divider */}
+          <div className="chat-input-divider" />
+
+          {/* Voice Toggle */}
+          <button
+            onClick={() => setVoiceEnabled(!voiceEnabled)}
+            className={`chat-control-btn ${voiceEnabled ? 'active' : ''}`}
+            title={voiceEnabled ? 'Voice responses ON' : 'Voice responses OFF'}
+          >
+            {voiceEnabled ? (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.536 8.464a5 5 0 010 7.072m2.828-9.9a9 9 0 010 12.728M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2" />
+              </svg>
+            )}
+          </button>
+
+          {/* Export Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="chat-control-btn"
+              title="Export conversation"
+              disabled={messages.length === 0}
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            </button>
+            {showExportMenu && (
+              <div className="absolute right-0 bottom-full mb-2 bg-neutral-800 border border-neutral-700 rounded-lg shadow-xl z-50 py-1 min-w-[140px]">
+                <button
+                  onClick={() => handleExportChat('markdown')}
+                  className="w-full px-3 py-2 text-left text-sm text-neutral-300 hover:bg-neutral-700"
+                >
+                  Export as Markdown
+                </button>
+                <button
+                  onClick={() => handleExportChat('text')}
+                  className="w-full px-3 py-2 text-left text-sm text-neutral-300 hover:bg-neutral-700"
+                >
+                  Export as Text
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Clear Chat */}
+          <button
+            onClick={handleClear}
+            className="chat-control-btn"
+            title="Clear chat"
+            disabled={messages.length === 0}
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
-          ) : (
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
-          )}
-        </button>
+          </button>
+        </div>
+
+        {/* Data summary below input */}
+        {dataSummary && (
+          <div className="chat-input-meta">
+            {dataSummary.projects} projects · {dataSummary.records.toLocaleString()} records loaded
+          </div>
+        )}
       </div>
     </div>
   );
