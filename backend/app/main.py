@@ -154,6 +154,34 @@ class ChatResponse(BaseModel):
     error: Optional[str] = None
 
 
+class RealtimeToolDefinition(BaseModel):
+    """Tool definition for OpenAI Realtime API."""
+    type: str = "function"
+    name: str
+    description: str
+    parameters: dict
+
+
+class RealtimeSessionConfig(BaseModel):
+    """Configuration for realtime voice session."""
+    voice: str = Field(default="alloy", description="Voice to use: alloy, nova, echo, fable, onyx, shimmer")
+    temperature: float = Field(default=0.7, ge=0.0, le=2.0)
+
+
+class RealtimeTokenRequest(BaseModel):
+    """Request model for realtime token endpoint."""
+    data_context: str = Field(..., description="JSON or markdown summary of the cost data")
+    session_config: Optional[RealtimeSessionConfig] = None
+
+
+class RealtimeTokenResponse(BaseModel):
+    """Response model for realtime token endpoint."""
+    client_secret: str
+    session_id: str
+    expires_at: int  # Unix timestamp
+    voice: str
+
+
 # ============================================================================
 # Endpoints
 # ============================================================================
@@ -645,6 +673,176 @@ async def api_voice_synthesize(
     except Exception as e:
         logger.error(f"Synthesis error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+def get_voice_system_instructions(data_context: str) -> str:
+    """Build voice-optimized system prompt for conversational responses."""
+    return f"""You are a conversational cost analyst assistant. You speak naturally about construction project costs.
+
+## Data Context
+{data_context}
+
+## CRITICAL VOICE GUIDELINES
+
+1. **Keep responses CONCISE** - 2-3 sentences maximum for most responses
+2. **Speak naturally** - No bullet points, no markdown, no tables
+3. **Use conversational numbers** - Say "about 2.3 million" not "$2,345,678.90"
+4. **Round appropriately** - "roughly 85 percent" not "84.73 percent"
+5. **Summarize, don't enumerate** - Give key insights, not data dumps
+
+## When Asked About Charts
+- Say "I'll display that chart for you" and call the show_chart function
+- DO NOT describe chart data verbally - let the visual speak
+
+## Number Guidelines
+- Under $10K: "around 8 thousand"
+- $10K-$1M: "about 450 thousand" or "roughly half a million"
+- $1M-$1B: "approximately 2.3 million" or "about 45 million"
+- Percentages: "around 85 percent" or "just over three quarters"
+
+## Response Style
+- Be direct and professional
+- Give context: "Your project is tracking well" vs just numbers
+- Highlight concerns: "I notice the forecast is trending higher than budget"
+- Offer to show charts when data would be better visualized
+
+## Key Terms (speak these naturally)
+- Budget = what was planned
+- Spend = what's been spent so far
+- Forecast = expected final cost
+- Variance = difference from budget (positive is good, negative is over)
+- JTD = Job to Date (cumulative spend)
+- PF = Performance Factor (over 1 means behind schedule)"""
+
+
+def get_voice_tools() -> list[dict]:
+    """Define available tools for voice interactions."""
+    return [
+        {
+            "type": "function",
+            "name": "show_chart",
+            "description": "Display a chart to the user. Use this when the user asks to see or visualize data. Available chart types: spend-trend (monthly spending over time), variance (budget vs actual comparison), project-comparison (compare multiple projects), budget-pie (budget allocation breakdown), earned-value (EV analysis with CPI/SPI)",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "chart_type": {
+                        "type": "string",
+                        "enum": ["spend-trend", "variance", "project-comparison", "budget-pie", "earned-value"],
+                        "description": "The type of chart to display"
+                    },
+                    "title": {
+                        "type": "string",
+                        "description": "Optional title for the chart"
+                    }
+                },
+                "required": ["chart_type"]
+            }
+        },
+        {
+            "type": "function",
+            "name": "get_executive_summary",
+            "description": "Get a refreshed executive summary of the current cost data. Use when the user asks for an overview or status update.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        },
+        {
+            "type": "function",
+            "name": "end_voice_session",
+            "description": "End the voice conversation. Use when the user says goodbye, thanks, or indicates they're done.",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        }
+    ]
+
+
+@app.post("/api/voice/realtime-token", response_model=RealtimeTokenResponse)
+async def api_voice_realtime_token(request: RealtimeTokenRequest):
+    """
+    Generate an ephemeral token for OpenAI Realtime API.
+
+    This endpoint creates a short-lived session token that the frontend
+    uses to establish a WebRTC connection directly with OpenAI.
+    The main API key is never exposed to the client.
+    """
+    import httpx
+
+    logger.info("Generating realtime session token...")
+
+    settings = get_settings()
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Voice feature not configured. Set OPENAI_API_KEY in environment."
+        )
+
+    # Build session configuration
+    config = request.session_config or RealtimeSessionConfig()
+
+    session_payload = {
+        "model": "gpt-4o-realtime-preview-2024-12-17",
+        "voice": config.voice,
+        "instructions": get_voice_system_instructions(request.data_context),
+        "tools": get_voice_tools(),
+        "tool_choice": "auto",
+        "temperature": config.temperature,
+        "input_audio_transcription": {
+            "model": "whisper-1"
+        },
+        "turn_detection": {
+            "type": "server_vad",
+            "threshold": 0.5,
+            "prefix_padding_ms": 300,
+            "silence_duration_ms": 500
+        }
+    }
+
+    try:
+        # Request ephemeral token from OpenAI
+        async with httpx.AsyncClient(verify=False) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/realtime/sessions",
+                headers={
+                    "Authorization": f"Bearer {settings.openai_api_key}",
+                    "Content-Type": "application/json"
+                },
+                json=session_payload,
+                timeout=30.0
+            )
+
+            if response.status_code != 200:
+                error_detail = response.text
+                logger.error(f"OpenAI realtime session error: {response.status_code} - {error_detail}")
+                raise HTTPException(
+                    status_code=response.status_code,
+                    detail=f"Failed to create realtime session: {error_detail}"
+                )
+
+            data = response.json()
+
+            logger.info(f"Realtime session created: {data.get('id', 'unknown')}")
+
+            return RealtimeTokenResponse(
+                client_secret=data["client_secret"]["value"],
+                session_id=data["id"],
+                expires_at=data["client_secret"]["expires_at"],
+                voice=config.voice
+            )
+
+    except httpx.RequestError as e:
+        logger.error(f"Network error creating realtime session: {e}")
+        raise HTTPException(status_code=503, detail=f"Network error: {str(e)}")
+    except KeyError as e:
+        logger.error(f"Unexpected response format from OpenAI: {e}")
+        raise HTTPException(status_code=502, detail=f"Unexpected response from OpenAI API: missing key {e}")
+    except Exception as e:
+        logger.error(f"Unexpected error creating realtime session: {type(e).__name__}: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {type(e).__name__}: {str(e)}")
 
 
 # ============================================================================

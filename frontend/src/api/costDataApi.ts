@@ -231,5 +231,52 @@ export async function synthesizeSpeech(text: string, voice: string = 'alloy'): P
   return response.blob();
 }
 
+// Realtime Voice API types
+export interface RealtimeSessionConfig {
+  voice?: 'alloy' | 'nova' | 'echo' | 'fable' | 'onyx' | 'shimmer';
+  temperature?: number;
+}
+
+export interface RealtimeTokenRequest {
+  data_context: string;
+  session_config?: RealtimeSessionConfig;
+}
+
+export interface RealtimeTokenResponse {
+  client_secret: string;
+  session_id: string;
+  expires_at: number;  // Unix timestamp
+  voice: string;
+}
+
+export async function getRealtimeToken(request: RealtimeTokenRequest): Promise<RealtimeTokenResponse> {
+  if (isStaticDeployment) {
+    // Demo mode - return mock response
+    // Note: WebRTC won't actually work without real token, but UI can be demonstrated
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return {
+      client_secret: 'demo-token-not-functional',
+      session_id: 'demo-session',
+      expires_at: Math.floor((Date.now() + 600000) / 1000),  // Unix timestamp
+      voice: request.session_config?.voice || 'alloy'
+    };
+  }
+
+  const response = await fetch(`${API_BASE}/voice/realtime-token`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(request),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
 export { isStaticDeployment };
 

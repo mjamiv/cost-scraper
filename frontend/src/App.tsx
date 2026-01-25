@@ -7,6 +7,7 @@ import { DataTable } from './components/DataTable';
 import { CostCharts } from './components/CostCharts';
 import { DataExportPanel } from './components/DataExportPanel';
 import { ChatInterface } from './components/ChatInterface';
+import { VoiceChatPanel } from './components/VoiceChatPanel';
 import { fetchCostData, isStaticDeployment } from './api/costDataApi';
 import { CostDataRow, QueryFilters } from './api/types';
 
@@ -25,6 +26,7 @@ function App() {
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
   const [aboutOpen, setAboutOpen] = useState(false);
+  const [voiceChatOpen, setVoiceChatOpen] = useState(false);
 
   const handleSearch = useCallback(async () => {
     setIsLoading(true);
@@ -131,6 +133,18 @@ function App() {
 
         {/* Right side */}
         <div className="flex items-center gap-4">
+          {/* Voice Chat Button - Chat bubble with dollar sign */}
+          <button
+            onClick={() => setVoiceChatOpen(true)}
+            className="header-menu-btn"
+            title="Voice Cost Assistant"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+              <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M12 7v2m0 4v2m-2-6c0-1 .5-2 2-2s2 1 2 2-.5 1.5-2 2c-1.5.5-2 1-2 2s.5 2 2 2 2-1 2-2" strokeLinecap="round" />
+            </svg>
+          </button>
+
           {/* About Button */}
           <button
             onClick={() => setAboutOpen(true)}
@@ -295,6 +309,13 @@ function App() {
           </div>
         </div>
       )}
+
+      {/* Voice Chat Panel */}
+      <VoiceChatPanel
+        data={data}
+        isOpen={voiceChatOpen}
+        onClose={() => setVoiceChatOpen(false)}
+      />
 
       {/* Agentation - development only */}
       {import.meta.env.DEV && <Agentation />}
