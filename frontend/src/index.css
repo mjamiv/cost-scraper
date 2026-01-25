@@ -439,37 +439,144 @@ body {
   background: var(--color-neutral-800);
 }
 
-/* Message bubbles */
+/* Message bubbles - Enhanced with avatars */
 .chat-message {
-  @apply mb-6;
+  @apply mb-6 flex gap-3;
+  animation: messageSlideIn 0.3s ease-out;
+}
+
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .chat-message-user {
-  @apply flex justify-end;
-}
-
-.chat-message-user .chat-message-content {
-  background: var(--color-gold);
-  color: var(--color-black);
-  @apply rounded-2xl rounded-br-sm;
-  @apply px-5 py-3;
-  @apply text-sm font-medium;
-  max-width: 70%;
+  @apply flex-row-reverse;
 }
 
 .chat-message-assistant {
-  @apply flex justify-start;
+  @apply flex-row;
+}
+
+/* Avatar styling */
+.chat-avatar {
+  @apply w-9 h-9 rounded-full flex-shrink-0;
+  @apply flex items-center justify-center;
+  @apply transition-transform duration-200;
+}
+
+.chat-avatar:hover {
+  transform: scale(1.05);
+}
+
+.chat-avatar-user {
+  background: var(--color-gold);
+  color: var(--color-black);
+}
+
+.chat-avatar-assistant {
+  background: linear-gradient(135deg, var(--color-neutral-800), var(--color-neutral-700));
+  color: var(--color-gold);
+  border: 1px solid var(--color-neutral-700);
+}
+
+/* Message wrapper for content + timestamp */
+.chat-message-wrapper {
+  @apply flex flex-col;
+  max-width: 85%;
+}
+
+.chat-message-user .chat-message-wrapper {
+  @apply items-end;
+}
+
+.chat-message-assistant .chat-message-wrapper {
+  @apply items-start;
+  max-width: 100%;
+  flex: 1;
+}
+
+/* Message content bubbles */
+.chat-message-user .chat-message-content {
+  background: var(--color-gold);
+  color: var(--color-black);
+  @apply rounded-2xl rounded-tr-sm;
+  @apply px-5 py-3;
+  @apply text-sm font-medium;
+  box-shadow: 0 2px 8px rgba(212, 164, 24, 0.2);
 }
 
 .chat-message-assistant .chat-message-content {
   background: var(--color-neutral-900);
   color: var(--color-neutral-100);
-  @apply rounded-2xl rounded-bl-sm;
+  @apply rounded-2xl rounded-tl-sm;
   @apply px-5 py-4;
   @apply text-sm;
   border: 1px solid var(--color-neutral-800);
-  max-width: 100%;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
   width: 100%;
+}
+
+/* Timestamp */
+.chat-message-meta {
+  @apply mt-1.5 px-1;
+}
+
+.chat-timestamp {
+  @apply text-xs;
+  color: var(--color-neutral-600);
+}
+
+/* Copy button - Enhanced */
+.chat-copy-btn {
+  @apply absolute right-3 top-3;
+  @apply p-2 rounded-lg;
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-400);
+  @apply opacity-0 transition-all duration-200;
+  border: 1px solid var(--color-neutral-700);
+}
+
+.chat-message-content:hover .chat-copy-btn {
+  @apply opacity-100;
+}
+
+.chat-copy-btn:hover {
+  color: var(--color-gold);
+  border-color: var(--color-gold);
+  background: var(--color-neutral-800);
+}
+
+/* Loading skeleton */
+.chat-skeleton {
+  @apply space-y-3 py-2;
+}
+
+.chat-skeleton-line {
+  @apply h-4 rounded;
+  background: linear-gradient(
+    90deg,
+    var(--color-neutral-800) 25%,
+    var(--color-neutral-700) 50%,
+    var(--color-neutral-800) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 /* Input Area - Centered and focal */
@@ -649,13 +756,18 @@ body {
 .chat-markdown h2,
 .chat-markdown h3,
 .chat-markdown h4 {
-  @apply font-semibold mt-5 mb-3 first:mt-0;
+  @apply font-semibold mt-6 mb-3 first:mt-0;
   color: var(--color-white);
 }
 
-.chat-markdown h1 { @apply text-lg; border-bottom: 1px solid var(--color-neutral-800); @apply pb-2; }
+.chat-markdown h1 { @apply text-lg pb-2; border-bottom: 1px solid var(--color-neutral-800); }
 .chat-markdown h2 { @apply text-base; }
-.chat-markdown h3 { @apply text-sm font-bold; color: var(--color-gold); }
+.chat-markdown h3 {
+  @apply text-sm font-bold pb-2;
+  color: var(--color-gold);
+  border-bottom: 1px solid var(--color-neutral-800);
+}
+.chat-markdown h4 { @apply text-sm; color: var(--color-neutral-300); }
 
 .chat-markdown strong {
   @apply font-semibold;
@@ -669,19 +781,29 @@ body {
 
 .chat-markdown ul,
 .chat-markdown ol {
-  @apply pl-5 mb-4 space-y-2;
+  @apply pl-6 mb-4 space-y-2;
 }
 
 .chat-markdown ul { @apply list-disc; }
 .chat-markdown ol { @apply list-decimal; }
 
 .chat-markdown li {
-  color: var(--color-neutral-300);
-  line-height: 1.6;
+  color: var(--color-neutral-200);
+  line-height: 1.7;
+  @apply pl-1;
 }
 
 .chat-markdown li::marker {
   color: var(--color-gold);
+}
+
+/* First/last child spacing */
+.chat-markdown > *:first-child {
+  @apply mt-0;
+}
+
+.chat-markdown > *:last-child {
+  @apply mb-0;
 }
 
 /* Nested lists */

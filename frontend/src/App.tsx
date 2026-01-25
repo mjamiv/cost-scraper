@@ -24,6 +24,7 @@ function App() {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
+  const [aboutOpen, setAboutOpen] = useState(false);
 
   const handleSearch = useCallback(async () => {
     setIsLoading(true);
@@ -130,18 +131,16 @@ function App() {
 
         {/* Right side */}
         <div className="flex items-center gap-4">
-          {/* Demo Badge */}
-          {isStaticDeployment && (
-            <span className="demo-badge">Demo</span>
-          )}
-
-          {/* Record Count */}
-          {data.length > 0 && (
-            <div className="header-stat">
-              <span className="header-stat-value">{data.length.toLocaleString()}</span>
-              <span className="header-stat-label">records</span>
-            </div>
-          )}
+          {/* About Button */}
+          <button
+            onClick={() => setAboutOpen(true)}
+            className="header-menu-btn"
+            title="About this application"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
 
           {/* Right Panel Toggle */}
           <button
@@ -153,12 +152,6 @@ function App() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
           </button>
-
-          {/* Connection Status */}
-          <div className="flex items-center gap-2 text-sm text-neutral-500">
-            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-            <span className="hidden sm:inline">Connected</span>
-          </div>
         </div>
       </header>
 
@@ -171,6 +164,8 @@ function App() {
             onFilterChange={setFilters}
             onSearch={handleSearch}
             isLoading={isLoading}
+            recordCount={data.length}
+            isDemo={isStaticDeployment}
           />
         </Sidebar>
 
@@ -246,6 +241,60 @@ function App() {
           )}
         </RightPanel>
       </div>
+
+      {/* About Modal */}
+      {aboutOpen && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setAboutOpen(false)}>
+          <div className="bg-neutral-900 border border-neutral-700 rounded-xl max-w-lg w-full p-6 shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="flex items-start justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Northstar" className="w-12 h-12" />
+                <div>
+                  <h2 className="text-xl font-bold text-white">northstar.cost-chat</h2>
+                  <p className="text-sm text-neutral-400">Project Cost Analytics</p>
+                </div>
+              </div>
+              <button onClick={() => setAboutOpen(false)} className="text-neutral-400 hover:text-white">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="space-y-4 text-neutral-300">
+              <p>
+                <strong className="text-white">northstar.cost-chat</strong> is an AI-powered cost analysis assistant that helps you explore and understand project cost data.
+              </p>
+
+              <div>
+                <h3 className="text-white font-semibold mb-2">Key Features:</h3>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li>Natural language queries about project costs and budgets</li>
+                  <li>Interactive charts for spend trends, variances, and comparisons</li>
+                  <li>Hierarchical data tables with drill-down capabilities</li>
+                  <li>Voice input and audio responses</li>
+                  <li>Data export in multiple formats (CSV, Excel, PDF)</li>
+                  <li>Earned value analysis and forecasting metrics</li>
+                </ul>
+              </div>
+
+              <div>
+                <h3 className="text-white font-semibold mb-2">How to Use:</h3>
+                <ul className="list-disc list-inside space-y-1 text-sm">
+                  <li>Open <strong>Settings</strong> to configure project filters and load data</li>
+                  <li>Ask questions in the chat like "What's our budget status?"</li>
+                  <li>Use commands like <code className="text-gold">/chart spend</code> for visualizations</li>
+                  <li>Type <code className="text-gold">/help</code> for all available commands</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-neutral-700 text-xs text-neutral-500 text-center">
+              Powered by Snowflake + OpenAI
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Agentation - development only */}
       {import.meta.env.DEV && <Agentation />}

@@ -5,11 +5,13 @@ interface SidebarFiltersProps {
   onFilterChange: (filters: QueryFilters) => void;
   onSearch: () => void;
   isLoading: boolean;
+  recordCount?: number;
+  isDemo?: boolean;
 }
 
 const DEFAULT_PROJECTS = '106073';
 
-export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading }: SidebarFiltersProps) {
+export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, recordCount = 0, isDemo = false }: SidebarFiltersProps) {
   const handleProjectsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onFilterChange({ ...filters, projectNumbers: e.target.value });
   };
@@ -26,6 +28,25 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading }:
 
   return (
     <div className="sidebar-filters">
+      {/* Stats Section */}
+      <div className="flex items-center justify-between mb-4 pb-4 border-b border-neutral-700">
+        <div className="flex items-center gap-3">
+          {isDemo && (
+            <span className="demo-badge">Demo</span>
+          )}
+          {recordCount > 0 && (
+            <div className="flex items-center gap-2">
+              <span className="text-lg font-bold text-gold font-mono">{recordCount.toLocaleString()}</span>
+              <span className="text-xs text-neutral-500 uppercase">records</span>
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 text-sm text-neutral-500">
+          <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+          <span className="text-xs">Connected</span>
+        </div>
+      </div>
+
       <div className="flex items-center gap-2 mb-4">
         <div className="w-2 h-2 rounded-full bg-accent animate-pulse" />
         <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide">Query Filters</h3>

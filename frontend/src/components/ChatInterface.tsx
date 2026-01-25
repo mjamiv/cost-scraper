@@ -10,23 +10,33 @@ interface ExtendedChatMessage extends ChatMessage {
   chartType?: ChartType;
 }
 
-// Preprocess markdown to fix table formatting issues
+// Preprocess markdown to fix formatting issues (headers, lists, tables)
 function preprocessMarkdown(content: string): string {
-  // First, fix inline tables where || indicates row breaks (AI sometimes returns tables without newlines)
-  // Pattern: | Header1 | Header2 || Value1 | Value2 || ... (double pipes between rows)
-  let fixed = content;
+  let result = content;
 
-  // Replace || with newline + | to split inline table rows
-  // But be careful not to break actual content - only do this if it looks like a table pattern
-  if (fixed.includes('||') && fixed.includes('|') && (fixed.match(/\|/g) || []).length >= 6) {
-    // Replace || with newline, ensuring proper table row format
-    fixed = fixed.replace(/\|\|/g, '|\n|');
+  // 1. Normalize line endings
+  result = result.replace(/\r\n/g, '\n');
+
+  // 2. Add blank lines before headers (###, ##, #) if not already present
+  // Match any non-newline char followed by optional newline and then a header
+  result = result.replace(/([^\n])\n?(#{1,6}\s)/g, '$1\n\n$2');
+
+  // 3. Add blank lines after headers if followed by non-header content
+  result = result.replace(/(#{1,6}\s[^\n]+)\n([^\n#\s])/g, '$1\n\n$2');
+
+  // 4. Add blank lines before bullet lists (ensure list items are properly separated)
+  result = result.replace(/([^\n\-\*\s])\n([-\*]\s)/g, '$1\n\n$2');
+
+  // 5. Add blank lines before numbered lists
+  result = result.replace(/([^\n\d\s])\n(\d+\.\s)/g, '$1\n\n$2');
+
+  // 6. Fix inline tables where || indicates row breaks
+  if (result.includes('||') && result.includes('|') && (result.match(/\|/g) || []).length >= 6) {
+    result = result.replace(/\|\|/g, '|\n|');
   }
 
-  // Also handle cases where table rows are separated by single | at row boundaries
-  // e.g., "| A | B | C || D | E | F |" should become two rows
-
-  const lines = fixed.split('\n');
+  // 7. Process tables to ensure proper formatting
+  const lines = result.split('\n');
   const processed: string[] = [];
   let inTable = false;
   let tableLines: string[] = [];
@@ -42,6 +52,10 @@ function preprocessMarkdown(content: string): string {
       if (!inTable) {
         inTable = true;
         tableLines = [];
+        // Add blank line before table if needed
+        if (processed.length > 0 && processed[processed.length - 1] !== '') {
+          processed.push('');
+        }
       }
       tableLines.push(trimmed);
     } else {
@@ -51,7 +65,7 @@ function preprocessMarkdown(content: string): string {
           // Check if we have a separator row
           const hasSeparator = tableLines.some(l => /^\|[\s\-:|]+\|$/.test(l) || /^[\s\-:|]+$/.test(l.replace(/\|/g, '')));
 
-          if (!hasSeparator && tableLines.length > 0) {
+          if (!hasSeparator && tableLines.length > 1) {
             // Insert separator after first row
             const headerRow = tableLines[0];
             const colCount = headerRow.split('|').filter(c => c.trim()).length;
@@ -59,7 +73,6 @@ function preprocessMarkdown(content: string): string {
             tableLines.splice(1, 0, separator);
           }
 
-          processed.push(''); // Add blank line before table
           processed.push(...tableLines);
           processed.push(''); // Add blank line after table
         }
@@ -73,21 +86,23 @@ function preprocessMarkdown(content: string): string {
   // Handle case where content ends with a table
   if (inTable && tableLines.length > 0) {
     const hasSeparator = tableLines.some(l => /^\|[\s\-:|]+\|$/.test(l));
-    if (!hasSeparator && tableLines.length > 0) {
+    if (!hasSeparator && tableLines.length > 1) {
       const headerRow = tableLines[0];
       const colCount = headerRow.split('|').filter(c => c.trim()).length;
       const separator = '|' + Array(colCount).fill('---').join('|') + '|';
       tableLines.splice(1, 0, separator);
     }
-    processed.push('');
     processed.push(...tableLines);
     processed.push('');
   }
 
-  // Clean up any [object Object] artifacts that might appear
-  let result = processed.join('\n');
+  // 8. Clean up artifacts
+  result = processed.join('\n');
   result = result.replace(/,?\s*\[object Object\],?\s*/g, ' ');
   result = result.replace(/\[object Object\]/g, '');
+
+  // 9. Normalize multiple blank lines to max 2
+  result = result.replace(/\n{3,}/g, '\n\n');
 
   return result;
 }
@@ -169,6 +184,47 @@ const markdownComponents: Components = {
   p: TableAwareParagraph,
 };
 
+// Loading skeleton for streaming responses
+function LoadingSkeleton() {
+  return (
+    <div className="chat-skeleton">
+      <div className="chat-skeleton-line w-full"></div>
+      <div className="chat-skeleton-line w-3/4"></div>
+      <div className="chat-skeleton-line w-1/2"></div>
+    </div>
+  );
+}
+
+// Avatar components
+function UserAvatar() {
+  return (
+    <div className="chat-avatar chat-avatar-user">
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+      </svg>
+    </div>
+  );
+}
+
+function AssistantAvatar() {
+  return (
+    <div className="chat-avatar chat-avatar-assistant">
+      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+      </svg>
+    </div>
+  );
+}
+
+interface ExtendedChatMessageWithMeta extends ExtendedChatMessage {
+  timestamp?: string;
+}
+
+// Helper to get formatted timestamp
+function getTimestamp(): string {
+  return new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
 interface ChatInterfaceProps {
   data: CostDataRow[];
   onCommand?: (command: string) => void;
@@ -240,7 +296,7 @@ const COMMAND_HELP = `
 `;
 
 export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
-  const [messages, setMessages] = useState<ExtendedChatMessage[]>([]);
+  const [messages, setMessages] = useState<ExtendedChatMessageWithMeta[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -365,19 +421,20 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
 
   // Add a chart message
   const addChartMessage = (chartType: ChartType, title: string) => {
+    const timestamp = getTimestamp();
     if (!data.length) {
       setMessages(prev => [
         ...prev,
-        { role: 'user', content: `Show ${title}` },
-        { role: 'assistant', content: 'No data loaded. Please load project data first using the filters.' },
+        { role: 'user', content: `Show ${title}`, timestamp },
+        { role: 'assistant', content: 'No data loaded. Please load project data first using the filters.', timestamp },
       ]);
       return;
     }
 
     setMessages(prev => [
       ...prev,
-      { role: 'user', content: `Show ${title}` },
-      { role: 'assistant', content: '', chartType },
+      { role: 'user', content: `Show ${title}`, timestamp },
+      { role: 'assistant', content: '', chartType, timestamp },
     ]);
   };
 
@@ -385,6 +442,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
     const userMessage = (messageText || input).trim();
     if (!userMessage || isLoading) return;
 
+    const timestamp = getTimestamp();
     setInput('');
     setActiveCategory(null);
 
@@ -396,8 +454,8 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
       if (lowerCommand === '/help') {
         setMessages(prev => [
           ...prev,
-          { role: 'user', content: userMessage },
-          { role: 'assistant', content: COMMAND_HELP },
+          { role: 'user', content: userMessage, timestamp },
+          { role: 'assistant', content: COMMAND_HELP, timestamp },
         ]);
         return;
       }
@@ -448,8 +506,8 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
         if (confirmMsg) {
           setMessages(prev => [
             ...prev,
-            { role: 'user', content: userMessage },
-            { role: 'assistant', content: confirmMsg },
+            { role: 'user', content: userMessage, timestamp },
+            { role: 'assistant', content: confirmMsg, timestamp },
           ]);
         }
         return;
@@ -461,9 +519,9 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
 
     // Normal message flow
     setIsLoading(true);
-    const newUserMessage: ExtendedChatMessage = { role: 'user', content: userMessage };
+    const newUserMessage: ExtendedChatMessageWithMeta = { role: 'user', content: userMessage, timestamp };
     setMessages(prev => [...prev, newUserMessage]);
-    setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined, timestamp }]);
 
     try {
       const dataContext = getDataContext();
@@ -619,10 +677,10 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                   </div>
                 )}
 
-                {/* Quick Start Prompts */}
+                {/* Example Prompts */}
                 {!activeCategory && (
                   <div className="space-y-2 max-w-md mx-auto">
-                    <p className="text-xs text-neutral-500 uppercase tracking-wide mb-3">Quick Start</p>
+                    <p className="text-sm text-neutral-400 mb-3">Try These Examples. Or try your own!</p>
                     <button
                       onClick={() => handleSendMessage('Give me an executive summary of the current cost status')}
                       className="chat-suggestion"
@@ -660,49 +718,57 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                 key={index}
                 className={`chat-message ${message.role === 'user' ? 'chat-message-user' : 'chat-message-assistant'}`}
               >
-                <div className="chat-message-content group relative">
-                  {message.content ? (
-                    message.role === 'assistant' ? (
-                      <>
-                        <div className="chat-markdown">
-                          <ReactMarkdown
-                            remarkPlugins={[remarkGfm]}
-                            components={markdownComponents}
-                          >
-                            {preprocessMarkdown(message.content)}
-                          </ReactMarkdown>
-                        </div>
-                        {/* Render chart if present */}
-                        {message.chartType && data.length > 0 && (
-                          <div className="mt-4">
-                            <InlineChatChart type={message.chartType} data={data} />
+                {/* Avatar */}
+                {message.role === 'user' ? <UserAvatar /> : <AssistantAvatar />}
+
+                {/* Message wrapper for content + timestamp */}
+                <div className="chat-message-wrapper">
+                  <div className="chat-message-content group relative">
+                    {message.content ? (
+                      message.role === 'assistant' ? (
+                        <>
+                          <div className="chat-markdown">
+                            <ReactMarkdown
+                              remarkPlugins={[remarkGfm]}
+                              components={markdownComponents}
+                            >
+                              {preprocessMarkdown(message.content)}
+                            </ReactMarkdown>
                           </div>
-                        )}
-                      </>
+                          {/* Render chart if present */}
+                          {message.chartType && data.length > 0 && (
+                            <div className="mt-4">
+                              <InlineChatChart type={message.chartType} data={data} />
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        message.content
+                      )
+                    ) : message.chartType && data.length > 0 ? (
+                      // Chart-only message (no text)
+                      <InlineChatChart type={message.chartType} data={data} />
                     ) : (
-                      message.content
-                    )
-                  ) : message.chartType && data.length > 0 ? (
-                    // Chart-only message (no text)
-                    <InlineChatChart type={message.chartType} data={data} />
-                  ) : (
-                    <span className="chat-typing">
-                      <span></span>
-                      <span></span>
-                      <span></span>
-                    </span>
-                  )}
-                  {/* Copy button for assistant messages */}
-                  {message.role === 'assistant' && message.content && (
-                    <button
-                      onClick={() => handleCopyMessage(message.content)}
-                      className="absolute right-2 top-2 opacity-0 group-hover:opacity-100 transition-opacity p-1.5 bg-neutral-700 rounded text-neutral-400 hover:text-white"
-                      title="Copy message"
-                    >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                      </svg>
-                    </button>
+                      <LoadingSkeleton />
+                    )}
+                    {/* Copy button for assistant messages */}
+                    {message.role === 'assistant' && message.content && (
+                      <button
+                        onClick={() => handleCopyMessage(message.content)}
+                        className="chat-copy-btn"
+                        title="Copy message"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
+                  {/* Timestamp */}
+                  {message.timestamp && (
+                    <div className="chat-message-meta">
+                      <span className="chat-timestamp">{message.timestamp}</span>
+                    </div>
                   )}
                 </div>
               </div>
