@@ -1,4 +1,4 @@
-import { CostDataResponse, FilterOptions, QueryFilters } from './types';
+import { CostDataResponse, FilterOptions, QueryFilters, WBSDataResponse } from './types';
 import { getMockCostDataResponse } from './mockData';
 
 const API_BASE = '/api';
@@ -15,7 +15,7 @@ export async function fetchCostData(filters: QueryFilters): Promise<CostDataResp
   }
 
   const params = new URLSearchParams();
-  
+
   if (filters.projectNumbers) {
     params.append('project_numbers', filters.projectNumbers);
   }
@@ -25,13 +25,13 @@ export async function fetchCostData(filters: QueryFilters): Promise<CostDataResp
   if (filters.districtId) {
     params.append('district_id', filters.districtId);
   }
-  
+
   const response = await fetch(`${API_BASE}/cost-data?${params.toString()}`);
-  
+
   if (!response.ok) {
     throw new Error(`API Error: ${response.status} ${response.statusText}`);
   }
-  
+
   return response.json();
 }
 
@@ -452,6 +452,72 @@ export async function deleteCustomVoice(voiceId: string): Promise<CustomVoiceDel
     }
 
     throw new Error(errorData.detail || `API Error: ${response.status}`);
+  }
+
+  return response.json();
+}
+
+// WBS Data API functions
+export async function fetchWBSData(projectNumbers: string, limit: number = 1000): Promise<WBSDataResponse> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return {
+      success: false,
+      columns: [],
+      rows: [],
+      row_count: 0,
+      query_id: 'demo',
+      timing_ms: 0,
+      view_name: 'PROD_ENT_CONSUMPTION.SEM_VW.WBS',
+      message: 'WBS data not available in demo mode'
+    };
+  }
+
+  const params = new URLSearchParams();
+  params.append('project_numbers', projectNumbers);
+  params.append('limit', limit.toString());
+
+  const response = await fetch(`${API_BASE}/wbs-data?${params.toString()}`);
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status} ${response.statusText}`);
+  }
+
+  return response.json();
+}
+
+export async function fetchWBSSnapshot(
+  projectNumbers: string,
+  fiscalMonth?: string,
+  limit: number = 1000
+): Promise<WBSDataResponse> {
+  if (isStaticDeployment) {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    return {
+      success: false,
+      columns: [],
+      rows: [],
+      row_count: 0,
+      query_id: 'demo',
+      timing_ms: 0,
+      view_name: 'PROD_ENT_CONSUMPTION.SEM_VW.WBS_SNAPSHOT_FLAT_WITH_ATTRIBUTES',
+      message: 'WBS snapshot data not available in demo mode'
+    };
+  }
+
+  const params = new URLSearchParams();
+  params.append('project_numbers', projectNumbers);
+  params.append('limit', limit.toString());
+  if (fiscalMonth) {
+    params.append('fiscal_month', fiscalMonth);
+  }
+
+  const response = await fetch(`${API_BASE}/wbs-snapshot?${params.toString()}`);
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.detail || `API Error: ${response.status} ${response.statusText}`);
   }
 
   return response.json();

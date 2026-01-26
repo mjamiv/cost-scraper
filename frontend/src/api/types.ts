@@ -8,7 +8,7 @@ export interface CostDataRow {
   WBS_DESCRIPTION: string | null;
   ACCOUNT_CODE: string | null;
   UNIT_OF_MEASURE_ID: string | null;
-  
+
   // Current Budget
   CE_QTY: number | null;
   CB_QTY: number | null;
@@ -93,10 +93,24 @@ export interface FilterOptions {
   fiscal_months: string[];
 }
 
+export interface WBSTagFilters {
+  area?: string[];
+  phase?: string[];
+  dGroup?: string[];
+  accountCode?: string[];
+  userDefined7?: string[];
+  districtSpecificTag16?: string[];
+  districtSpecificTag19?: string[];
+  userDefined12?: string[];
+  tag23?: string[];
+  tag25?: string[];
+}
+
 export interface QueryFilters {
   projectNumbers: string;
   startMonth: string;
   districtId: string;
+  wbsTags: WBSTagFilters;
 }
 
 export interface HierarchicalCostDataRow extends CostDataRow {
@@ -105,5 +119,58 @@ export interface HierarchicalCostDataRow extends CostDataRow {
   parentId: string | null;
   subRows?: HierarchicalCostDataRow[];
   isAggregated?: boolean;
+}
+
+// WBS Data Types
+export interface WBSDataRow {
+  WBS_ID: string | null;
+  WBS_CODE: string | null;
+  WBS_ELEMENT: string;
+  PROJECT_NUMBER: string;
+  WBS_DESCRIPTION: string | null;
+  AREA: string | null;
+  PHASE: string | null;
+  'D-GROUP': string | null;
+  ACCOUNT_CODE: string | null;
+  ACCOUNT_CODE_DESCRIPTION: string | null;
+  USER_DEFINED_7: string | null;
+  DISTRICT_SPECIFIC_TAG_16: string | null;
+  DISTRICT_SPECIFIC_TAG_19: string | null;
+  USER_DEFINED_12: string | null;
+  USER_DEFINED_13: string | null;  // Multiplier for revenue calculations
+  TAG23: string | null;
+  TAG25: string | null;
+}
+
+export interface WBSSnapshotRow {
+  WBS_ELEMENT: string;
+  PROJECT_NUMBER: string;
+  FISCAL_YEAR_MONTH_NO: string;
+  WBS_ELEMENT_L01: string | null;
+  WBS_DESCRIPTION_L01: string | null;
+  WBS_ELEMENT_L02: string | null;
+  WBS_DESCRIPTION_L02: string | null;
+  WBS_ELEMENT_L03: string | null;
+  WBS_DESCRIPTION_L03: string | null;
+  WBS_ELEMENT_L04: string | null;
+  WBS_DESCRIPTION_L04: string | null;
+  WBS_ELEMENT_L05: string | null;
+  WBS_DESCRIPTION_L05: string | null;
+  CBS_HIERARCHY: string | null;
+  AREA: string | null;
+  PHASE: string | null;
+  WORK_TYPE: string | null;
+  USER_STATUS: string | null;
+}
+
+export interface WBSDataResponse {
+  success: boolean;
+  columns: string[];
+  rows: WBSDataRow[] | WBSSnapshotRow[];
+  row_count: number;
+  query_id: string;
+  timing_ms: number;
+  view_name: string;
+  message: string;
 }
 

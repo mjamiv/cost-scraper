@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
 import { Agentation } from 'agentation';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel, RightPanelTab } from './components/RightPanel';
@@ -8,17 +8,23 @@ import { CostCharts } from './components/CostCharts';
 import { DataExportPanel } from './components/DataExportPanel';
 import { ChatInterface } from './components/ChatInterface';
 import { VoiceChatPanel } from './components/VoiceChatPanel';
-import { fetchCostData, isStaticDeployment } from './api/costDataApi';
-import { CostDataRow, QueryFilters } from './api/types';
+// WBSDataInspector removed - functionality integrated into main flow
+import { fetchCostData, fetchWBSData, isStaticDeployment } from './api/costDataApi';
+import { CostDataRow, QueryFilters, WBSDataRow } from './api/types';
+import { mergeCostDataWithTags, filterByWBSTags, CostDataRowWithTags } from './utils/wbsDataMerger';
 
 const DEFAULT_FILTERS: QueryFilters = {
   projectNumbers: '106073',
   startMonth: '202101',
   districtId: '',
+  wbsTags: {},
 };
 
 function App() {
-  const [data, setData] = useState<CostDataRow[]>([]);
+  // Raw data from API (before filtering)
+  const [rawCostData, setRawCostData] = useState<CostDataRow[]>([]);
+  const [wbsTagData, setWbsTagData] = useState<WBSDataRow[]>([]);
+
   const [filters, setFilters] = useState<QueryFilters>(DEFAULT_FILTERS);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -28,17 +34,38 @@ function App() {
   const [aboutOpen, setAboutOpen] = useState(false);
   const [voiceChatOpen, setVoiceChatOpen] = useState(false);
 
+  // Merge cost data with WBS tags (memoized)
+  const mergedData = useMemo<CostDataRowWithTags[]>(() => {
+    if (rawCostData.length === 0) return [];
+    return mergeCostDataWithTags(rawCostData, wbsTagData);
+  }, [rawCostData, wbsTagData]);
+
+  // Apply WBS tag filters client-side (memoized)
+  const data = useMemo<CostDataRowWithTags[]>(() => {
+    if (mergedData.length === 0) return [];
+    const hasFilters = Object.values(filters.wbsTags || {}).some(v => v && v.length > 0);
+    if (!hasFilters) return mergedData;
+    return filterByWBSTags(mergedData, filters.wbsTags || {});
+  }, [mergedData, filters.wbsTags]);
+
   const handleSearch = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      const response = await fetchCostData(filters);
-      setData(response.data);
+      // Fetch both cost data and WBS tag data in parallel
+      const [costResponse, wbsResponse] = await Promise.all([
+        fetchCostData(filters),
+        fetchWBSData(filters.projectNumbers, 10000)
+      ]);
+
+      setRawCostData(costResponse.data);
+      setWbsTagData(wbsResponse.rows as WBSDataRow[]);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'An error occurred while fetching data';
       setError(message);
-      setData([]);
+      setRawCostData([]);
+      setWbsTagData([]);
     } finally {
       setIsLoading(false);
     }
@@ -178,9 +205,11 @@ function App() {
             onFilterChange={setFilters}
             onSearch={handleSearch}
             isLoading={isLoading}
-            recordCount={data.length}
+            recordCount={mergedData.length}
+            filteredCount={data.length}
             isDemo={isStaticDeployment}
             data={data}
+            mergedData={mergedData}
           />
         </Sidebar>
 
@@ -220,6 +249,7 @@ function App() {
           activeTab={rightPanelTab}
           onTabChange={setRightPanelTab}
           onClose={() => setRightPanelOpen(false)}
+          activeFilters={filters.wbsTags}
         >
           {rightPanelTab === 'chart' && (
             <div className="right-panel-chart-container">

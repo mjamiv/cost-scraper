@@ -29,6 +29,7 @@ const COLUMN_GROUPS = [
   { id: 'period', label: 'Period', columns: ['PER_QTY', 'PER_PERC_COMP', 'PER_PF', 'PER_CF', 'PER_SPEND'], className: 'group-period' },
   { id: 'jtd', label: 'JTD', columns: ['JTD_QTY', 'JTD_PERC_COMP', 'JTD_PF', 'JTD_CF', 'JTD_SPEND'], className: 'group-jtd' },
   { id: 'forecast', label: 'Forecast', columns: ['FORECAST_PF', 'FORECAST_CF', 'FORECAST_AMOUNT', 'FORECAST_REMAINING_AMOUNT', 'FORECAST_CHANGE', 'SL_VARIANCE'], className: 'group-forecast' },
+  { id: 'revenue', label: 'Revenue', columns: ['MULTIPLIER', 'PER_REVENUE', 'JTD_REVENUE', 'FCST_REVENUE'], className: 'group-revenue' },
 ];
 
 // Default hidden columns
@@ -445,6 +446,64 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         meta: { group: 'forecast', align: 'right' },
         size: 100,
       },
+
+      // Revenue columns
+      {
+        header: 'Multiplier',
+        accessorKey: 'MULTIPLIER',
+        cell: ({ getValue }) => {
+          const val = getValue() as number | null;
+          if (val === null || val === undefined) return <span className="text-slate-500">—</span>;
+          return <span className="text-right tabular-nums block">{val.toFixed(2)}</span>;
+        },
+        meta: { group: 'revenue', align: 'right' },
+        size: 90,
+      },
+      {
+        id: 'PER_REVENUE',
+        header: 'Per Revenue',
+        accessorFn: (row) => {
+          const spend = parseFloat(String(row.PER_SPEND || 0));
+          const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+          if (!multiplier || isNaN(spend)) return null;
+          return (spend / 1.4) * multiplier;
+        },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block text-emerald-400">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'revenue', align: 'right' },
+        size: 110,
+      },
+      {
+        id: 'JTD_REVENUE',
+        header: 'JTD Revenue',
+        accessorFn: (row) => {
+          const spend = parseFloat(String(row.JTD_SPEND || 0));
+          const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+          if (!multiplier || isNaN(spend)) return null;
+          return (spend / 1.4) * multiplier;
+        },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block text-emerald-400">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'revenue', align: 'right' },
+        size: 110,
+      },
+      {
+        id: 'FCST_REVENUE',
+        header: 'Fcst Revenue',
+        accessorFn: (row) => {
+          const amount = parseFloat(String(row.FORECAST_AMOUNT || 0));
+          const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+          if (!multiplier || isNaN(amount)) return null;
+          return (amount / 1.4) * multiplier;
+        },
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block text-emerald-400">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'revenue', align: 'right' },
+        size: 110,
+      },
     ],
     []
   );
@@ -509,6 +568,26 @@ export function DataTable({ data, isLoading }: DataTableProps) {
   // Calculate totals from root-level rows only
   const totals = useMemo(() => {
     const rootRows = hierarchicalData;
+    // Calculate revenue totals using formula: (spend / 1.4) * multiplier
+    const perRevenueTotal = rootRows.reduce((sum, row) => {
+      const spend = parseFloat(String(row.PER_SPEND || 0));
+      const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+      if (!multiplier || isNaN(spend)) return sum;
+      return sum + (spend / 1.4) * multiplier;
+    }, 0);
+    const jtdRevenueTotal = rootRows.reduce((sum, row) => {
+      const spend = parseFloat(String(row.JTD_SPEND || 0));
+      const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+      if (!multiplier || isNaN(spend)) return sum;
+      return sum + (spend / 1.4) * multiplier;
+    }, 0);
+    const fcstRevenueTotal = rootRows.reduce((sum, row) => {
+      const amount = parseFloat(String(row.FORECAST_AMOUNT || 0));
+      const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+      if (!multiplier || isNaN(amount)) return sum;
+      return sum + (amount / 1.4) * multiplier;
+    }, 0);
+
     return {
       CB_AMT: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.CB_AMT)) || 0), 0),
       PER_SPEND: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.PER_SPEND)) || 0), 0),
@@ -516,6 +595,9 @@ export function DataTable({ data, isLoading }: DataTableProps) {
       FORECAST_AMOUNT: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.FORECAST_AMOUNT)) || 0), 0),
       FORECAST_CHANGE: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.FORECAST_CHANGE)) || 0), 0),
       SL_VARIANCE: rootRows.reduce((sum, row) => sum + (parseFloat(String(row.SL_VARIANCE)) || 0), 0),
+      PER_REVENUE: perRevenueTotal,
+      JTD_REVENUE: jtdRevenueTotal,
+      FCST_REVENUE: fcstRevenueTotal,
     };
   }, [hierarchicalData]);
 
@@ -573,6 +655,10 @@ export function DataTable({ data, isLoading }: DataTableProps) {
     FORECAST_REMAINING_AMOUNT: 'Forecast Remaining',
     FORECAST_CHANGE: 'Forecast Change',
     SL_VARIANCE: 'SL Variance',
+    MULTIPLIER: 'Multiplier',
+    PER_REVENUE: 'Period Revenue',
+    JTD_REVENUE: 'JTD Revenue',
+    FCST_REVENUE: 'Forecast Revenue',
   };
 
   if (isLoading) {
@@ -752,6 +838,10 @@ export function DataTable({ data, isLoading }: DataTableProps) {
                         {isPositive ? '+' : '▼ '}{formatCurrency(Math.abs(totalValue))}
                       </td>
                     );
+                  }
+                  // Revenue columns get green styling
+                  if (colId === 'PER_REVENUE' || colId === 'JTD_REVENUE' || colId === 'FCST_REVENUE') {
+                    return <td key={colId} className="text-right tabular-nums text-emerald-400">{formatCurrency(totalValue)}</td>;
                   }
                   return <td key={colId} className="text-right tabular-nums">{formatCurrency(totalValue)}</td>;
                 }

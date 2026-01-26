@@ -159,13 +159,16 @@ export function CostCharts({ data }: CostChartsProps) {
     // Exclude current month - data is typically incomplete
     const filteredData = excludeCurrentMonth(data);
 
-    // Filter to ROOT-level rows only (empty CBS_HIERARCHY)
+    // Check if there are any ROOT-level rows (empty CBS_HIERARCHY)
     // Root rows contain the project totals - children are already summed into these
-    const topLevelRows = filteredData.filter((row) => {
+    const rootRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
-      // Only include rows with empty/null/"-" CBS - these are project root totals
       return !cbs || cbs.trim() === '' || cbs === '-';
     });
+
+    // If WBS tag filtering resulted in only child rows (no root rows),
+    // aggregate from all filtered rows. Otherwise use root rows to avoid double-counting.
+    const topLevelRows = rootRows.length > 0 ? rootRows : filteredData;
 
     interface PeriodAgg {
       jtdSpend: number;

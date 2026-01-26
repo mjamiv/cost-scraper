@@ -309,14 +309,28 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const shouldAutoScrollRef = useRef(true);
 
-  // Auto-scroll to bottom when new messages arrive
+  // Track scroll position to determine if user is at bottom
+  const handleScroll = useCallback(() => {
+    const container = messagesContainerRef.current;
+    if (!container) return;
+
+    // Check if user is near the bottom (within 100px)
+    const isNearBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 100;
+    shouldAutoScrollRef.current = isNearBottom;
+  }, []);
+
+  // Auto-scroll to bottom only when user is near bottom or new message is from user
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldAutoScrollRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
   }, [messages]);
 
   // Focus input on mount
@@ -643,7 +657,7 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
       )}
 
       {/* Messages */}
-      <div className="chat-messages">
+      <div className="chat-messages" ref={messagesContainerRef} onScroll={handleScroll}>
         {messages.length === 0 ? (
           <div className="chat-welcome-centered">
             <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Northstar" className="w-20 h-20 mx-auto mb-6" />
@@ -653,62 +667,9 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
             </p>
 
             {data.length > 0 ? (
-              <>
-                {/* Analysis Categories */}
-                <div className="flex flex-wrap gap-2 justify-center mb-6">
-                  {ANALYSIS_CATEGORIES.map(cat => (
-                    <button
-                      key={cat.id}
-                      onClick={() => setActiveCategory(activeCategory === cat.id ? null : cat.id)}
-                      className={`category-btn ${activeCategory === cat.id ? 'active' : ''}`}
-                    >
-                      {cat.icon} {cat.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Category Prompts */}
-                {activeCategory && (
-                  <div className="space-y-2 mb-6 max-w-md mx-auto">
-                    {ANALYSIS_CATEGORIES.find(c => c.id === activeCategory)?.prompts.map((prompt, i) => (
-                      <button
-                        key={i}
-                        onClick={() => handleSendMessage(prompt)}
-                        className="chat-suggestion"
-                      >
-                        {prompt}
-                      </button>
-                    ))}
-                  </div>
-                )}
-
-                {/* Example Prompts */}
-                {!activeCategory && (
-                  <div className="max-w-lg mx-auto">
-                    <p className="text-sm text-neutral-400 mb-3">Try These Examples. Or try your own!</p>
-                    <div className="chat-suggestions-row">
-                      <button
-                        onClick={() => handleSendMessage('Give me an executive summary of the current cost status')}
-                        className="chat-suggestion"
-                      >
-                        📊 Executive Summary
-                      </button>
-                      <button
-                        onClick={() => addChartMessage('spend-trend', 'Spend Trend Chart')}
-                        className="chat-suggestion"
-                      >
-                        📈 Spend Trend
-                      </button>
-                      <button
-                        onClick={() => handleSendMessage('/help')}
-                        className="chat-suggestion"
-                      >
-                        💡 Commands
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </>
+              <div className="text-sm text-neutral-500">
+                Ask anything about your cost data.
+              </div>
             ) : (
               <div className="no-data-notice">
                 <p className="font-medium mb-1">No data loaded</p>

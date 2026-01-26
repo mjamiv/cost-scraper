@@ -337,9 +337,10 @@ export function VoiceChatPanel({ data, isOpen, onClose }: VoiceChatPanelProps) {
                 <div className="voice-orb-wave-bar" />
               </div>
             ) : (
-              // Dollar sign chat icon for idle state
+              // Chat bubble icon for idle state
               <svg className="voice-orb-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M12 7v2m0 4v2m-2-6c0-1 .5-2 2-2s2 1 2 2-.5 1.5-2 2c-1.5.5-2 1-2 2s.5 2 2 2 2-1 2-2" strokeLinecap="round" />
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" strokeLinecap="round" strokeLinejoin="round" />
+                <path d="M8 10h8M8 14h4" strokeLinecap="round" />
               </svg>
             )}
           </div>

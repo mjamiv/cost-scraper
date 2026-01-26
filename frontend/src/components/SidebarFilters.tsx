@@ -1,4 +1,6 @@
-import { QueryFilters, CostDataRow } from '../api/types';
+import { useState, useRef, useEffect } from 'react';
+import { QueryFilters, CostDataRow, WBSTagFilters } from '../api/types';
+import { CostDataRowWithTags, getUniqueTagValues } from '../utils/wbsDataMerger';
 
 interface SidebarFiltersProps {
   filters: QueryFilters;
@@ -6,11 +8,23 @@ interface SidebarFiltersProps {
   onSearch: () => void;
   isLoading: boolean;
   recordCount?: number;
+  filteredCount?: number;
   isDemo?: boolean;
-  data?: CostDataRow[];
+  data?: CostDataRow[] | CostDataRowWithTags[];
+  mergedData?: CostDataRowWithTags[];
 }
 
 const DEFAULT_PROJECTS = '106073';
+
+// Helper to count active WBS filters (now counts arrays with values)
+function countActiveWBSFilters(wbsTags: WBSTagFilters): number {
+  return Object.values(wbsTags).filter(v => v && v.length > 0).length;
+}
+
+// Count total selected values across all filters
+function countTotalSelectedValues(wbsTags: WBSTagFilters): number {
+  return Object.values(wbsTags).reduce((sum, v) => sum + (v?.length || 0), 0);
+}
 
 // Extract unique project info from data
 function getProjectInfo(data: CostDataRow[] | undefined): { number: string; description: string }[] {
@@ -33,14 +47,157 @@ function getProjectInfo(data: CostDataRow[] | undefined): { number: string; desc
   }));
 }
 
-export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, recordCount = 0, isDemo = false, data }: SidebarFiltersProps) {
+// Multi-select dropdown component
+interface MultiSelectDropdownProps {
+  label: string;
+  options: string[];
+  selectedValues: string[];
+  onChange: (values: string[]) => void;
+}
+
+function MultiSelectDropdown({ label, options, selectedValues, onChange }: MultiSelectDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggleValue = (value: string) => {
+    if (selectedValues.includes(value)) {
+      onChange(selectedValues.filter(v => v !== value));
+    } else {
+      onChange([...selectedValues, value]);
+    }
+  };
+
+  const selectAll = () => onChange([...options]);
+  const selectNone = () => onChange([]);
+
+  const displayText = selectedValues.length === 0
+    ? 'All'
+    : selectedValues.length === options.length
+      ? 'All selected'
+      : `${selectedValues.length} selected`;
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      <label className="block text-xs font-medium text-slate-500 mb-1">
+        {label}
+        <span className="text-neutral-600 ml-1">({options.length})</span>
+      </label>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="sidebar-input text-sm w-full text-left flex items-center justify-between"
+      >
+        <span className={selectedValues.length > 0 ? 'text-gold' : 'text-neutral-400'}>
+          {displayText}
+        </span>
+        <svg
+          className={`w-4 h-4 text-neutral-500 transition-transform ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full bg-neutral-800 border border-neutral-600 rounded-lg shadow-xl max-h-48 overflow-auto">
+          {/* Select All / None buttons */}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-neutral-700 bg-neutral-900/50">
+            <button
+              type="button"
+              onClick={selectAll}
+              className="text-xs text-gold hover:underline"
+            >
+              All
+            </button>
+            <span className="text-neutral-600">|</span>
+            <button
+              type="button"
+              onClick={selectNone}
+              className="text-xs text-neutral-400 hover:text-white hover:underline"
+            >
+              None
+            </button>
+          </div>
+
+          {/* Options */}
+          <div className="py-1">
+            {options.map(option => (
+              <label
+                key={option}
+                className="flex items-center gap-2 px-3 py-1.5 hover:bg-neutral-700 cursor-pointer"
+              >
+                <input
+                  type="checkbox"
+                  checked={selectedValues.includes(option)}
+                  onChange={() => toggleValue(option)}
+                  className="w-4 h-4 rounded border-neutral-600 bg-neutral-700 text-gold focus:ring-gold focus:ring-offset-0"
+                />
+                <span className="text-sm text-neutral-200 truncate">{option}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, recordCount = 0, filteredCount, isDemo = false, data, mergedData }: SidebarFiltersProps) {
+  const [wbsFiltersExpanded, setWbsFiltersExpanded] = useState(false);
   const projectInfo = getProjectInfo(data);
+  const activeWBSFilterCount = countActiveWBSFilters(filters.wbsTags || {});
+  const totalSelectedValues = countTotalSelectedValues(filters.wbsTags || {});
+
+  // Get unique tag values for dropdowns
+  const tagOptions = {
+    area: mergedData ? getUniqueTagValues(mergedData, 'AREA') : [],
+    phase: mergedData ? getUniqueTagValues(mergedData, 'PHASE') : [],
+    dGroup: mergedData ? getUniqueTagValues(mergedData, 'D_GROUP') : [],
+    accountCode: mergedData ? getUniqueTagValues(mergedData, 'ACCOUNT_CODE') : [],
+    userDefined7: mergedData ? getUniqueTagValues(mergedData, 'USER_DEFINED_7') : [],
+    districtSpecificTag16: mergedData ? getUniqueTagValues(mergedData, 'DISTRICT_SPECIFIC_TAG_16') : [],
+    districtSpecificTag19: mergedData ? getUniqueTagValues(mergedData, 'DISTRICT_SPECIFIC_TAG_19') : [],
+    userDefined12: mergedData ? getUniqueTagValues(mergedData, 'USER_DEFINED_12') : [],
+    tag23: mergedData ? getUniqueTagValues(mergedData, 'TAG23') : [],
+    tag25: mergedData ? getUniqueTagValues(mergedData, 'TAG25') : [],
+  };
+
   const handleProjectsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     onFilterChange({ ...filters, projectNumbers: e.target.value });
   };
 
   const handleStartMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     onFilterChange({ ...filters, startMonth: e.target.value });
+  };
+
+  const handleWBSTagChange = (key: keyof WBSTagFilters, values: string[]) => {
+    onFilterChange({
+      ...filters,
+      wbsTags: {
+        ...filters.wbsTags,
+        [key]: values.length > 0 ? values : undefined
+      }
+    });
+  };
+
+  const clearWBSFilters = () => {
+    onFilterChange({
+      ...filters,
+      wbsTags: {}
+    });
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {
@@ -59,8 +216,17 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
           )}
           {recordCount > 0 && (
             <div className="flex items-center gap-2">
-              <span className="text-lg font-bold text-gold font-mono">{recordCount.toLocaleString()}</span>
-              <span className="text-xs text-neutral-500 uppercase">records</span>
+              {filteredCount !== undefined && filteredCount !== recordCount ? (
+                <>
+                  <span className="text-lg font-bold text-gold font-mono">{filteredCount.toLocaleString()}</span>
+                  <span className="text-xs text-neutral-500">of {recordCount.toLocaleString()}</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-lg font-bold text-gold font-mono">{recordCount.toLocaleString()}</span>
+                  <span className="text-xs text-neutral-500 uppercase">records</span>
+                </>
+              )}
             </div>
           )}
         </div>
@@ -112,7 +278,7 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
       </div>
 
       {/* Start Month */}
-      <div className="mb-6">
+      <div className="mb-4">
         <label className="block text-sm font-medium text-slate-400 mb-2">
           Start Month
           <span className="text-slate-500 text-xs ml-1">(YYYYMM)</span>
@@ -126,6 +292,79 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
           maxLength={6}
           className="sidebar-input font-mono"
         />
+      </div>
+
+      {/* WBS Tag Filters - Collapsible */}
+      <div className="mb-6 border border-neutral-700 rounded-lg overflow-hidden">
+        <button
+          onClick={() => setWbsFiltersExpanded(!wbsFiltersExpanded)}
+          className="w-full px-3 py-2 flex items-center justify-between bg-neutral-800/50 hover:bg-neutral-800 transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+            </svg>
+            <span className="text-sm font-medium text-slate-300">WBS Tag Filters</span>
+            {activeWBSFilterCount > 0 && (
+              <span className="px-1.5 py-0.5 text-xs font-bold bg-gold text-black rounded-full">
+                {totalSelectedValues}
+              </span>
+            )}
+          </div>
+          <svg
+            className={`w-4 h-4 text-slate-400 transition-transform ${wbsFiltersExpanded ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </button>
+
+        {wbsFiltersExpanded && (
+          <div className="p-3 space-y-3 bg-neutral-900/50">
+            {/* Clear filters button */}
+            {activeWBSFilterCount > 0 && (
+              <button
+                onClick={clearWBSFilters}
+                className="text-xs text-red-400 hover:text-red-300 underline"
+              >
+                Clear all WBS filters
+              </button>
+            )}
+
+            {/* Multi-select dropdowns for each tag filter */}
+            {([
+              { key: 'area', label: 'Area', options: tagOptions.area },
+              { key: 'phase', label: 'Phase', options: tagOptions.phase },
+              { key: 'dGroup', label: 'D-Group', options: tagOptions.dGroup },
+              { key: 'accountCode', label: 'Account Code', options: tagOptions.accountCode },
+              { key: 'districtSpecificTag16', label: 'District Tag 16', options: tagOptions.districtSpecificTag16 },
+              { key: 'districtSpecificTag19', label: 'District Tag 19', options: tagOptions.districtSpecificTag19 },
+              { key: 'userDefined7', label: 'User Defined 7', options: tagOptions.userDefined7 },
+              { key: 'userDefined12', label: 'User Defined 12', options: tagOptions.userDefined12 },
+              { key: 'tag23', label: 'Tag 23', options: tagOptions.tag23 },
+              { key: 'tag25', label: 'Tag 25', options: tagOptions.tag25 },
+            ] as const).map(({ key, label, options }) => (
+              options.length > 0 && (
+                <MultiSelectDropdown
+                  key={key}
+                  label={label}
+                  options={options}
+                  selectedValues={filters.wbsTags?.[key] || []}
+                  onChange={(values) => handleWBSTagChange(key, values)}
+                />
+              )
+            ))}
+
+            {/* Show message if no data loaded */}
+            {!mergedData?.length && (
+              <p className="text-xs text-neutral-500 italic">
+                Load data first to see available filter options
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Search Button */}

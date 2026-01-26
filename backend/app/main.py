@@ -371,7 +371,7 @@ async def api_cost_data(
         raise HTTPException(status_code=400, detail="start_month must be YYYYMM format (6 digits)")
 
     try:
-        # Build and execute query (reuse existing function)
+        # Build and execute query
         sql, params = build_cr_cube_query(
             project_numbers=projects,
             start_month=start_month,
@@ -451,6 +451,99 @@ async def api_filters():
 
     except Exception as e:
         logger.error(f"Failed to fetch filters: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wbs-data")
+async def api_wbs_data(
+    project_numbers: str = Query(..., description="Comma-separated project numbers"),
+    limit: int = Query(default=1000, ge=1, le=10000, description="Maximum rows to return")
+):
+    """
+    Get WBS data for projects from the WBS view.
+    Returns WBS structure with attributes.
+    """
+    logger.info(f"WBS data request: projects={project_numbers}, limit={limit}")
+
+    # Parse comma-separated projects into list
+    projects = [p.strip() for p in project_numbers.split(",") if p.strip()]
+
+    if not projects:
+        raise HTTPException(status_code=400, detail="At least one project number is required")
+
+    # Validate project numbers are digits only
+    for p in projects:
+        if not p.isdigit():
+            raise HTTPException(status_code=400, detail=f"Project number must be digits only: {p}")
+
+    try:
+        start_time = time.time()
+        sql, params = build_wbs_query(projects, limit)
+        result = execute_query(sql, params)
+        timing_ms = (time.time() - start_time) * 1000
+
+        return {
+            "success": True,
+            "columns": result["columns"],
+            "rows": result["rows"],
+            "row_count": result["row_count"],
+            "query_id": result["query_id"],
+            "timing_ms": timing_ms,
+            "view_name": "PROD_ENT_CONSUMPTION.SEM_VW.WBS",
+            "message": f"Returned {result['row_count']} rows in {timing_ms:.0f}ms"
+        }
+
+    except Exception as e:
+        logger.error(f"WBS data query failed: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/wbs-snapshot")
+async def api_wbs_snapshot(
+    project_numbers: str = Query(..., description="Comma-separated project numbers"),
+    fiscal_month: Optional[str] = Query(None, description="Optional fiscal month filter YYYYMM"),
+    limit: int = Query(default=1000, ge=1, le=10000, description="Maximum rows to return")
+):
+    """
+    Get WBS Snapshot data for projects from the WBS_SNAPSHOT_FLAT_WITH_ATTRIBUTES view.
+    Returns flattened hierarchy with L01-L20 levels.
+    """
+    logger.info(f"WBS snapshot request: projects={project_numbers}, fiscal_month={fiscal_month}, limit={limit}")
+
+    # Parse comma-separated projects into list
+    projects = [p.strip() for p in project_numbers.split(",") if p.strip()]
+
+    if not projects:
+        raise HTTPException(status_code=400, detail="At least one project number is required")
+
+    # Validate project numbers are digits only
+    for p in projects:
+        if not p.isdigit():
+            raise HTTPException(status_code=400, detail=f"Project number must be digits only: {p}")
+
+    # Validate fiscal_month format if provided
+    if fiscal_month and not re.match(r"^\d{6}$", fiscal_month):
+        raise HTTPException(status_code=400, detail="fiscal_month must be YYYYMM format (6 digits)")
+
+    try:
+        start_time = time.time()
+        sql, params = build_wbs_snapshot_query(projects, fiscal_month, limit)
+        result = execute_query(sql, params)
+        timing_ms = (time.time() - start_time) * 1000
+
+        return {
+            "success": True,
+            "columns": result["columns"],
+            "rows": result["rows"],
+            "row_count": result["row_count"],
+            "query_id": result["query_id"],
+            "timing_ms": timing_ms,
+            "view_name": "PROD_ENT_CONSUMPTION.SEM_VW.WBS_SNAPSHOT_FLAT_WITH_ATTRIBUTES",
+            "message": f"Returned {result['row_count']} rows in {timing_ms:.0f}ms"
+        }
+
+    except Exception as e:
+        logger.error(f"WBS snapshot query failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -1231,6 +1324,59 @@ async def api_custom_voice_delete(voice_id: str):
 # Query Builder
 # ============================================================================
 
+def build_wbs_query(project_numbers: list[str], limit: int) -> tuple[str, tuple]:
+    """Build WBS view query."""
+    placeholders = ", ".join(["%s"] * len(project_numbers))
+    sql = f"""
+    SELECT
+        WBS_ID,
+        WBS_CODE,
+        WBS_ELEMENT,
+        PROJECT_NUMBER,
+        WBS_DESCRIPTION,
+        AREA,
+        PHASE,
+        "D-GROUP",
+        ACCOUNT_CODE,
+        ACCOUNT_CODE_DESCRIPTION,
+        USER_DEFINED_7,
+        DISTRICT_SPECIFIC_TAG_16,
+        DISTRICT_SPECIFIC_TAG_19,
+        USER_DEFINED_12,
+        USER_DEFINED_13,
+        TAG23,
+        TAG25
+    FROM PROD_ENT_CONSUMPTION.SEM_VW.WBS
+    WHERE PROJECT_NUMBER IN ({placeholders})
+    ORDER BY CBS_SORT_ID, CBS_HIERARCHY ASC
+    LIMIT {limit}
+    """
+    return sql, tuple(project_numbers)
+
+
+def build_wbs_snapshot_query(project_numbers: list[str], fiscal_month: Optional[str], limit: int) -> tuple[str, tuple]:
+    """Build WBS Snapshot query."""
+    placeholders = ", ".join(["%s"] * len(project_numbers))
+    month_clause = "AND FISCAL_YEAR_MONTH_NO = %s" if fiscal_month else ""
+    sql = f"""
+    SELECT
+        WBS_ELEMENT, PROJECT_NUMBER, FISCAL_YEAR_MONTH_NO,
+        WBS_ELEMENT_L01, WBS_DESCRIPTION_L01,
+        WBS_ELEMENT_L02, WBS_DESCRIPTION_L02,
+        WBS_ELEMENT_L03, WBS_DESCRIPTION_L03,
+        WBS_ELEMENT_L04, WBS_DESCRIPTION_L04,
+        WBS_ELEMENT_L05, WBS_DESCRIPTION_L05,
+        CBS_HIERARCHY, AREA, PHASE, WORK_TYPE, USER_STATUS
+    FROM PROD_ENT_CONSUMPTION.SEM_VW.WBS_SNAPSHOT_FLAT_WITH_ATTRIBUTES
+    WHERE PROJECT_NUMBER IN ({placeholders})
+    {month_clause}
+    ORDER BY FISCAL_YEAR_MONTH_NO DESC, CBS_HIERARCHY ASC
+    LIMIT {limit}
+    """
+    params = list(project_numbers) + ([fiscal_month] if fiscal_month else [])
+    return sql, tuple(params)
+
+
 def build_cr_cube_query(
     project_numbers: list[str],
     start_month: str,
@@ -1239,19 +1385,19 @@ def build_cr_cube_query(
 ) -> tuple[str, tuple]:
     """
     Build the CR Cube SQL query with safe parameter binding.
-    
+
     Returns (sql_string, params_tuple)
     """
     # Build IN clause placeholders
     placeholders = ", ".join(["%s"] * len(project_numbers))
-    
+
     # Build optional end month clause
     end_clause = ""
     if end_month:
         end_clause = "AND CR.FISCAL_YEAR_MONTH_NO <= %s"
-    
+
     sql = f"""
-    SELECT 
+    SELECT
         CR.FISCAL_YEAR_MONTH_NO,
         PE.LEAD_DISTRICT_ID,
         PE.LEAD_DISTRICT,
@@ -1327,12 +1473,12 @@ def build_cr_cube_query(
     ORDER BY CR.FISCAL_YEAR_MONTH_NO, WBS.CBS_HIERARCHY ASC
     LIMIT {limit}
     """
-    
+
     # Build params tuple
     params = list(project_numbers) + [start_month]
     if end_month:
         params.append(end_month)
-    
+
     return sql, tuple(params)
 
 

@@ -1,6 +1,21 @@
 import { ReactNode } from 'react';
+import { WBSTagFilters } from '../api/types';
 
 export type RightPanelTab = 'chart' | 'table' | 'export';
+
+// Labels for WBS tag filter keys
+const WBS_TAG_LABELS: Record<keyof WBSTagFilters, string> = {
+  area: 'Area',
+  phase: 'Phase',
+  dGroup: 'D-Group',
+  accountCode: 'Account Code',
+  userDefined7: 'UD7',
+  districtSpecificTag16: 'DT16',
+  districtSpecificTag19: 'DT19',
+  userDefined12: 'UD12',
+  tag23: 'Tag23',
+  tag25: 'Tag25',
+};
 
 interface RightPanelProps {
   isOpen: boolean;
@@ -8,6 +23,7 @@ interface RightPanelProps {
   onTabChange: (tab: RightPanelTab) => void;
   onClose: () => void;
   children: ReactNode;
+  activeFilters?: WBSTagFilters;
 }
 
 const TABS: { id: RightPanelTab; label: string; icon: ReactNode }[] = [
@@ -40,8 +56,14 @@ const TABS: { id: RightPanelTab; label: string; icon: ReactNode }[] = [
   },
 ];
 
-export function RightPanel({ isOpen, activeTab, onTabChange, onClose, children }: RightPanelProps) {
+export function RightPanel({ isOpen, activeTab, onTabChange, onClose, children, activeFilters }: RightPanelProps) {
   if (!isOpen) return null;
+
+  // Get active filter entries (now handles arrays)
+  const filterEntries = activeFilters
+    ? (Object.entries(activeFilters) as [keyof WBSTagFilters, string[] | undefined][])
+        .filter(([, value]) => value && value.length > 0)
+    : [];
 
   return (
     <aside className="right-panel">
@@ -70,6 +92,21 @@ export function RightPanel({ isOpen, activeTab, onTabChange, onClose, children }
             </svg>
           </button>
         </div>
+
+        {/* Active Filters Display */}
+        {filterEntries.length > 0 && (
+          <div className="right-panel-filters">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-xs text-neutral-500 uppercase tracking-wide">Filters:</span>
+              {filterEntries.map(([key, values]) => (
+                <span key={key} className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-gold/20 text-gold rounded-full">
+                  <span className="text-gold/70">{WBS_TAG_LABELS[key]}:</span>
+                  <span>{values && values.length > 2 ? `${values.length} selected` : values?.join(', ')}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Content */}
         <div className="right-panel-content">
