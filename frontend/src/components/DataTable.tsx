@@ -15,10 +15,16 @@ import {
   VisibilityState,
 } from '@tanstack/react-table';
 import { CostDataRow, HierarchicalCostDataRow } from '../api/types';
+import { CostDataRowWithTags } from '../utils/wbsDataMerger';
 import { buildHierarchicalData } from '../utils/hierarchyUtils';
 
+// Extended hierarchical row type that includes WBS tags
+interface HierarchicalCostDataRowWithTags extends HierarchicalCostDataRow {
+  MULTIPLIER?: number | null;
+}
+
 interface DataTableProps {
-  data: CostDataRow[];
+  data: CostDataRow[] | CostDataRowWithTags[];
   isLoading: boolean;
 }
 
@@ -134,9 +140,9 @@ export function DataTable({ data, isLoading }: DataTableProps) {
   }, []);
 
   // Transform flat data to hierarchical structure
-  const hierarchicalData = useMemo(() => buildHierarchicalData(data), [data]);
+  const hierarchicalData = useMemo(() => buildHierarchicalData(data as CostDataRow[]) as HierarchicalCostDataRowWithTags[], [data]);
 
-  const columns = useMemo<ColumnDef<HierarchicalCostDataRow>[]>(
+  const columns = useMemo<ColumnDef<HierarchicalCostDataRowWithTags>[]>(
     () => [
       // Expander column
       {
@@ -464,8 +470,8 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         header: 'Per Revenue',
         accessorFn: (row) => {
           const spend = parseFloat(String(row.PER_SPEND || 0));
-          const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
-          if (!multiplier || isNaN(spend)) return null;
+          const multiplier = row.MULTIPLIER;
+          if (!multiplier || isNaN(spend) || spend === 0) return null;
           return (spend / 1.4) * multiplier;
         },
         cell: ({ getValue }) => (
@@ -479,8 +485,8 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         header: 'JTD Revenue',
         accessorFn: (row) => {
           const spend = parseFloat(String(row.JTD_SPEND || 0));
-          const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
-          if (!multiplier || isNaN(spend)) return null;
+          const multiplier = row.MULTIPLIER;
+          if (!multiplier || isNaN(spend) || spend === 0) return null;
           return (spend / 1.4) * multiplier;
         },
         cell: ({ getValue }) => (
@@ -494,8 +500,8 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         header: 'Fcst Revenue',
         accessorFn: (row) => {
           const amount = parseFloat(String(row.FORECAST_AMOUNT || 0));
-          const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
-          if (!multiplier || isNaN(amount)) return null;
+          const multiplier = row.MULTIPLIER;
+          if (!multiplier || isNaN(amount) || amount === 0) return null;
           return (amount / 1.4) * multiplier;
         },
         cell: ({ getValue }) => (
@@ -544,7 +550,7 @@ export function DataTable({ data, isLoading }: DataTableProps) {
     table.toggleAllRowsExpanded(false);
   };
 
-  const getRowClassName = (row: Row<HierarchicalCostDataRow>): string => {
+  const getRowClassName = (row: Row<HierarchicalCostDataRowWithTags>): string => {
     const isAggregated = row.original.isAggregated;
     const hasChildren = row.subRows && row.subRows.length > 0;
     const depth = row.original.depth;
@@ -571,19 +577,19 @@ export function DataTable({ data, isLoading }: DataTableProps) {
     // Calculate revenue totals using formula: (spend / 1.4) * multiplier
     const perRevenueTotal = rootRows.reduce((sum, row) => {
       const spend = parseFloat(String(row.PER_SPEND || 0));
-      const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+      const multiplier = row.MULTIPLIER;
       if (!multiplier || isNaN(spend)) return sum;
       return sum + (spend / 1.4) * multiplier;
     }, 0);
     const jtdRevenueTotal = rootRows.reduce((sum, row) => {
       const spend = parseFloat(String(row.JTD_SPEND || 0));
-      const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+      const multiplier = row.MULTIPLIER;
       if (!multiplier || isNaN(spend)) return sum;
       return sum + (spend / 1.4) * multiplier;
     }, 0);
     const fcstRevenueTotal = rootRows.reduce((sum, row) => {
       const amount = parseFloat(String(row.FORECAST_AMOUNT || 0));
-      const multiplier = (row as unknown as { MULTIPLIER: number | null }).MULTIPLIER;
+      const multiplier = row.MULTIPLIER;
       if (!multiplier || isNaN(amount)) return sum;
       return sum + (amount / 1.4) * multiplier;
     }, 0);

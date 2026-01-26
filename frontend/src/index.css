@@ -69,6 +69,16 @@ body {
 }
 
 /* ============================================================================
+   Common Components
+   ============================================================================ */
+
+.glass-card {
+  background: var(--color-neutral-950);
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.75rem;
+}
+
+/* ============================================================================
    App Layout
    ============================================================================ */
 
@@ -271,15 +281,17 @@ body {
 
 .right-panel-inner {
   @apply h-full flex flex-col;
+  overflow: hidden;
+  min-height: 0;
 }
 
 .right-panel-header {
-  @apply flex items-center justify-between px-4 py-2;
+  @apply flex items-center justify-between px-4 py-2 flex-shrink-0;
   border-bottom: 1px solid var(--color-neutral-800);
 }
 
 .right-panel-filters {
-  @apply px-4 py-2;
+  @apply px-4 py-2 flex-shrink-0;
   background: var(--color-neutral-900);
   border-bottom: 1px solid var(--color-neutral-800);
 }
@@ -315,14 +327,33 @@ body {
 }
 
 .right-panel-content {
-  @apply flex-1 overflow-auto p-4;
-  /* Account for header (52px) and optional filters bar */
+  @apply flex-1 p-4;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0; /* Important for flex children to scroll */
 }
 
 .right-panel-chart-container,
 .right-panel-table-container,
 .right-panel-export-container {
-  @apply h-full overflow-auto;
+  height: 100%;
+  max-height: 100%;
+  overflow: auto;
+  min-height: 0;
+}
+
+/* Ensure the glass-card inside right panel scrolls properly */
+.right-panel-table-container .glass-card {
+  display: flex;
+  flex-direction: column;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.right-panel-table-container .glass-card > .overflow-x-auto {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
 }
 
 /* Sticky table header in right panel */
