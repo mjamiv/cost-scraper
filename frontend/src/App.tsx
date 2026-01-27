@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { Agentation } from 'agentation';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel, RightPanelTab } from './components/RightPanel';
@@ -29,28 +29,38 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
-  const [sidebarAutoCloseTimer, setSidebarAutoCloseTimer] = useState<NodeJS.Timeout | null>(null);
+  const sidebarTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
   const [aboutOpen, setAboutOpen] = useState(false);
   const [voiceChatOpen, setVoiceChatOpen] = useState(false);
 
-  // Auto-collapse sidebar after 5 seconds of inactivity
-  useEffect(() => {
+  // Reset sidebar auto-close timer (called on user activity)
+  const resetSidebarTimer = useCallback(() => {
+    if (sidebarTimerRef.current) {
+      clearTimeout(sidebarTimerRef.current);
+    }
     if (leftSidebarOpen) {
-      // Clear any existing timer
-      if (sidebarAutoCloseTimer) {
-        clearTimeout(sidebarAutoCloseTimer);
-      }
-      // Set new timer to auto-close after 5 seconds
-      const timer = setTimeout(() => {
+      sidebarTimerRef.current = setTimeout(() => {
         setLeftSidebarOpen(false);
       }, 5000);
-      setSidebarAutoCloseTimer(timer);
-
-      return () => clearTimeout(timer);
     }
   }, [leftSidebarOpen]);
+
+  // Start/stop sidebar timer when sidebar opens/closes
+  useEffect(() => {
+    if (leftSidebarOpen) {
+      resetSidebarTimer();
+    } else if (sidebarTimerRef.current) {
+      clearTimeout(sidebarTimerRef.current);
+      sidebarTimerRef.current = null;
+    }
+    return () => {
+      if (sidebarTimerRef.current) {
+        clearTimeout(sidebarTimerRef.current);
+      }
+    };
+  }, [leftSidebarOpen, resetSidebarTimer]);
 
   // Merge cost data with WBS tags (memoized)
   const mergedData = useMemo<CostDataRowWithTags[]>(() => {
@@ -217,7 +227,7 @@ function App() {
       {/* Body */}
       <div className="app-body">
         {/* Left Sidebar - Filters */}
-        <Sidebar isOpen={leftSidebarOpen} onClose={() => setLeftSidebarOpen(false)}>
+        <Sidebar isOpen={leftSidebarOpen} onClose={() => setLeftSidebarOpen(false)} onActivity={resetSidebarTimer}>
           <SidebarFilters
             filters={filters}
             onFilterChange={setFilters}

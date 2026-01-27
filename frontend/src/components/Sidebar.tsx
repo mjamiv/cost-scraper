@@ -3,12 +3,19 @@ import { ReactNode } from 'react';
 interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
+  onActivity?: () => void;
   children: ReactNode;
 }
 
-export function Sidebar({ isOpen, onClose, children }: SidebarProps) {
+export function Sidebar({ isOpen, onClose, onActivity, children }: SidebarProps) {
   return (
-    <aside className={`app-sidebar ${isOpen ? '' : 'collapsed'}`}>
+    <aside
+      className={`app-sidebar ${isOpen ? '' : 'collapsed'}`}
+      onMouseMove={onActivity}
+      onMouseDown={onActivity}
+      onKeyDown={onActivity}
+      onScroll={onActivity}
+    >
       <div className="sidebar-inner">
         {/* Header */}
         <div className="sidebar-header">
