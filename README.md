@@ -12,6 +12,7 @@ A modern web application for querying and visualizing project cost data from Sno
 - 📐 **FTE Calculations** - Full-Time Equivalent using 4-4-5 financial calendar
 - 📊 **Interactive Data Table** - Sort, filter, and paginate through cost data
 - 🌳 **Hierarchical View** - Expand/collapse CBS hierarchy levels with aggregated totals
+- 📜 **Scrollable Data Table** - Fixed header with vertical/horizontal scrolling for large datasets
 - 📈 **Spend Analysis Chart** - Monthly spend bars, cumulative line, and Earned Value curve
 - 💰 **Earned Value Chart** - Compare Actual Spend vs Earned Value with CPI indicator
 - 📅 **Smart Date Filtering** - Charts respond to date ranges in queries ("Q1 2024", "Jan-Jun 2024")

@@ -196,6 +196,55 @@ The "Spending & FTE by Period" table in AI context shows:
 - **Contained Scrolling**: Only chat messages scroll; body overflow is hidden
 - **Sticky positioning**: Header uses `position: sticky; top: 0; z-index: 30`
 
+### CSS Scrolling - Critical Pattern
+
+**Problem**: Flex containers with `flex: 1` and percentage heights (`height: 100%`) don't constrain children properly when nested inside scrolling parents. Content expands to full height and overflows the viewport.
+
+**Solution**: Use explicit `calc()` heights for scrollable containers instead of relying on flex inheritance.
+
+**Working Pattern** (used in `.right-panel-table-container`):
+```css
+.right-panel-table-container {
+  /* Explicit height constraint based on viewport */
+  height: calc(100vh - var(--header-height) - 60px - 2rem);
+  max-height: calc(100vh - var(--header-height) - 60px - 2rem);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right-panel-table-container .glass-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right-panel-table-container .glass-card > .overflow-x-auto {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;  /* This enables scrolling */
+}
+```
+
+**Key Principles**:
+1. **Don't rely on `height: 100%`** in flex children of scrolling containers - it doesn't constrain height
+2. **Use `calc(100vh - ...)` ** to explicitly set container height based on viewport
+3. **The scrolling element** needs `overflow: auto` AND a constrained height (from parent)
+4. **Parent containers** need `overflow: hidden` to prevent content from escaping
+5. **`min-height: 0`** is required on flex children to allow them to shrink below content size
+
+**Anti-pattern** (doesn't work):
+```css
+/* This allows content to expand infinitely */
+.container {
+  flex: 1;
+  height: 100%;  /* Doesn't constrain in flex context */
+  overflow: auto;
+}
+```
+
 ### Sidebar Features
 - **Project Info Display**: When data is loaded, shows project number and description
 - **Connection Status**: Green pulse indicator shows connected state

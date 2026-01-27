@@ -334,7 +334,6 @@ body {
 }
 
 .right-panel-chart-container,
-.right-panel-table-container,
 .right-panel-export-container {
   height: 100%;
   max-height: 100%;
@@ -342,18 +341,30 @@ body {
   min-height: 0;
 }
 
-/* Ensure the glass-card inside right panel scrolls properly */
-.right-panel-table-container .glass-card {
+/* Table container - use explicit height constraint */
+.right-panel-table-container {
+  /* Calculate available height: viewport - header - panel header - padding */
+  height: calc(100vh - var(--header-height) - 60px - 2rem);
+  max-height: calc(100vh - var(--header-height) - 60px - 2rem);
   display: flex;
   flex-direction: column;
-  max-height: 100%;
   overflow: hidden;
 }
 
+/* Glass card fills the container */
+.right-panel-table-container .glass-card {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Scrollable table area */
 .right-panel-table-container .glass-card > .overflow-x-auto {
   flex: 1;
-  overflow: auto;
   min-height: 0;
+  overflow: auto;
 }
 
 /* Sticky table header in right panel */
@@ -361,6 +372,11 @@ body {
   position: sticky;
   top: 0;
   z-index: 10;
+  background: var(--color-neutral-900);
+}
+
+.right-panel-table-container .data-table thead th {
+  background: var(--color-neutral-900);
 }
 
 .panel-empty-state {
