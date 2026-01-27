@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo, useEffect } from 'react';
 import { Agentation } from 'agentation';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel, RightPanelTab } from './components/RightPanel';
@@ -29,10 +29,28 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  const [sidebarAutoCloseTimer, setSidebarAutoCloseTimer] = useState<NodeJS.Timeout | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
   const [aboutOpen, setAboutOpen] = useState(false);
   const [voiceChatOpen, setVoiceChatOpen] = useState(false);
+
+  // Auto-collapse sidebar after 5 seconds of inactivity
+  useEffect(() => {
+    if (leftSidebarOpen) {
+      // Clear any existing timer
+      if (sidebarAutoCloseTimer) {
+        clearTimeout(sidebarAutoCloseTimer);
+      }
+      // Set new timer to auto-close after 5 seconds
+      const timer = setTimeout(() => {
+        setLeftSidebarOpen(false);
+      }, 5000);
+      setSidebarAutoCloseTimer(timer);
+
+      return () => clearTimeout(timer);
+    }
+  }, [leftSidebarOpen]);
 
   // Merge cost data with WBS tags (memoized)
   const mergedData = useMemo<CostDataRowWithTags[]>(() => {

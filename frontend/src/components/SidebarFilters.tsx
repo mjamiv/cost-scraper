@@ -89,9 +89,9 @@ function MultiSelectDropdown({ label, options, selectedValues, onChange }: Multi
 
   return (
     <div ref={dropdownRef} className="relative">
-      <label className="block text-xs font-medium text-slate-500 mb-1">
+      <label className="block text-xs font-semibold text-neutral-400 mb-1.5 uppercase tracking-wide">
         {label}
-        <span className="text-neutral-600 ml-1">({options.length})</span>
+        <span className="text-neutral-500 font-normal normal-case ml-1">({options.length})</span>
       </label>
       <button
         type="button"
@@ -304,7 +304,7 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
             <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
             </svg>
-            <span className="text-sm font-medium text-slate-300">WBS Tag Filters</span>
+            <span className="text-sm font-medium text-slate-300">Filters</span>
             {activeWBSFilterCount > 0 && (
               <span className="px-1.5 py-0.5 text-xs font-bold bg-gold text-black rounded-full">
                 {totalSelectedValues}
@@ -322,29 +322,31 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
         </button>
 
         {wbsFiltersExpanded && (
-          <div className="p-3 space-y-3 bg-neutral-900/50">
+          <div className="p-4 space-y-4 bg-neutral-900/50 max-h-[60vh] overflow-y-auto">
             {/* Clear filters button */}
             {activeWBSFilterCount > 0 && (
-              <button
-                onClick={clearWBSFilters}
-                className="text-xs text-red-400 hover:text-red-300 underline"
-              >
-                Clear all WBS filters
-              </button>
+              <div className="flex justify-end">
+                <button
+                  onClick={clearWBSFilters}
+                  className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded border border-red-400/30 hover:border-red-400/50 transition-colors"
+                >
+                  Clear All
+                </button>
+              </div>
             )}
 
             {/* Multi-select dropdowns for each tag filter */}
             {([
               { key: 'area', label: 'Area', options: tagOptions.area },
               { key: 'phase', label: 'Phase', options: tagOptions.phase },
-              { key: 'dGroup', label: 'D-Group', options: tagOptions.dGroup },
+              { key: 'dGroup', label: 'Discipline', options: tagOptions.dGroup },
               { key: 'accountCode', label: 'Account Code', options: tagOptions.accountCode },
-              { key: 'districtSpecificTag16', label: 'District Tag 16', options: tagOptions.districtSpecificTag16 },
+              { key: 'districtSpecificTag16', label: 'District', options: tagOptions.districtSpecificTag16 },
               { key: 'districtSpecificTag19', label: 'District Tag 19', options: tagOptions.districtSpecificTag19 },
-              { key: 'userDefined7', label: 'User Defined 7', options: tagOptions.userDefined7 },
-              { key: 'userDefined12', label: 'User Defined 12', options: tagOptions.userDefined12 },
-              { key: 'tag23', label: 'Tag 23', options: tagOptions.tag23 },
-              { key: 'tag25', label: 'Tag 25', options: tagOptions.tag25 },
+              { key: 'userDefined7', label: 'Firm', options: tagOptions.userDefined7 },
+              { key: 'userDefined12', label: 'Multiplier', options: tagOptions.userDefined12 },
+              { key: 'tag23', label: 'Reimbursement Type', options: tagOptions.tag23 },
+              { key: 'tag25', label: 'Cost Category', options: tagOptions.tag25 },
             ] as const).map(({ key, label, options }) => (
               options.length > 0 && (
                 <MultiSelectDropdown

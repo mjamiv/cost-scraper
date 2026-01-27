@@ -667,8 +667,12 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
             </p>
 
             {data.length > 0 ? (
-              <div className="text-sm text-neutral-500">
-                Ask anything about your cost data.
+              <div className="text-sm text-neutral-500 space-y-2">
+                <p>Ask anything about your cost data.</p>
+                <div className="flex items-center justify-center gap-2 text-xs">
+                  <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                  <span className="text-emerald-500/80">{data.length.toLocaleString()} records connected</span>
+                </div>
               </div>
             ) : (
               <div className="no-data-notice">

@@ -7,14 +7,14 @@ export type RightPanelTab = 'chart' | 'table' | 'export';
 const WBS_TAG_LABELS: Record<keyof WBSTagFilters, string> = {
   area: 'Area',
   phase: 'Phase',
-  dGroup: 'D-Group',
-  accountCode: 'Account Code',
-  userDefined7: 'UD7',
-  districtSpecificTag16: 'DT16',
+  dGroup: 'Discipline',
+  accountCode: 'Account',
+  userDefined7: 'Firm',
+  districtSpecificTag16: 'District',
   districtSpecificTag19: 'DT19',
-  userDefined12: 'UD12',
-  tag23: 'Tag23',
-  tag25: 'Tag25',
+  userDefined12: 'Multiplier',
+  tag23: 'Reimb Type',
+  tag25: 'Cost Cat',
 };
 
 interface RightPanelProps {
