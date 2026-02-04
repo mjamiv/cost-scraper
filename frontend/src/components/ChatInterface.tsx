@@ -2,8 +2,7 @@ import { useState, useRef, useEffect, useCallback, ReactNode } from 'react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CostDataRow } from '../api/types';
-import { ChatMessage, streamChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
-import { generateMarkdownSummary } from '../utils/llmDataFormatter';
+import { ChatMessage, ChatFilterHints, ChartRequest, sendChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
 import { InlineChatChart, ChartType, detectChartRequest, parseDateRange } from './ChatCharts';
 
 interface ExtendedChatMessage extends ChatMessage {
@@ -222,6 +221,9 @@ function AssistantAvatar() {
 interface ExtendedChatMessageWithMeta extends ExtendedChatMessage {
   timestamp?: string;
   dateRange?: { start?: string; end?: string };
+  confidence?: 'high' | 'medium' | 'low';
+  needsClarification?: boolean;
+  projects?: string[];
 }
 
 // Helper to get formatted timestamp
@@ -232,6 +234,8 @@ function getTimestamp(): string {
 interface ChatInterfaceProps {
   data: CostDataRow[];
   onCommand?: (command: string) => void;
+  filterHints?: ChatFilterHints;
+  onChartRequest?: (request: ChartRequest) => void;
 }
 
 // Analysis categories with targeted prompts
@@ -337,14 +341,6 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-
-  // Generate data context for the AI
-  const getDataContext = useCallback(() => {
-    if (!data.length) {
-      return 'No cost data is currently loaded. Please load some project data first.';
-    }
-    return generateMarkdownSummary(data);
-  }, [data]);
 
   // Play audio response
   const playAudioResponse = async (text: string) => {
@@ -502,6 +498,15 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
         }
 
         addChartMessage(chartType, chartTitle);
+        if (onChartRequest && chartType) {
+          onChartRequest({
+            type: chartType,
+            metric: null,
+            groupBy: null,
+            projects: null,
+            dateRange: null,
+          });
+        }
         return;
       }
 
@@ -543,25 +548,46 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
     setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined, timestamp, dateRange }]);
 
     try {
-      const dataContext = getDataContext();
-      let fullResponse = '';
-
-      for await (const chunk of streamChatMessage({
+      const response = await sendChatMessage({
         message: userMessage,
-        data_context: dataContext,
-        history: messages,
-      })) {
-        fullResponse += chunk;
-        setMessages(prev => {
-          const updated = [...prev];
-          const lastMsg = updated[updated.length - 1];
-          updated[updated.length - 1] = { ...lastMsg, content: fullResponse };
-          return updated;
-        });
+        history: messages.map(m => ({ role: m.role, content: m.content })),
+        filter_hints: filterHints,
+        context_prefs: { exclude_current_month: false },
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || 'Chat error');
       }
 
-      if (voiceEnabled && fullResponse) {
-        playAudioResponse(fullResponse);
+      const content = response.needs_clarification
+        ? (response.clarifying_question || 'Can you clarify your request?')
+        : response.answer;
+
+      const chartType = response.chart_request?.type as ChartType | undefined;
+      const chartRange = response.chart_request?.dateRange || dateRange;
+      const chartProjects = response.chart_request?.projects || undefined;
+
+      setMessages(prev => {
+        const updated = [...prev];
+        const lastMsg = updated[updated.length - 1];
+        updated[updated.length - 1] = {
+          ...lastMsg,
+          content,
+          chartType: chartType || lastMsg.chartType,
+          dateRange: chartRange || lastMsg.dateRange,
+          projects: chartProjects || lastMsg.projects,
+          confidence: response.confidence,
+          needsClarification: response.needs_clarification,
+        };
+        return updated;
+      });
+
+      if (response.chart_request && onChartRequest) {
+        onChartRequest(response.chart_request);
+      }
+
+      if (voiceEnabled && content) {
+        playAudioResponse(content);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';
@@ -711,7 +737,12 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                           {/* Render chart if present */}
                           {message.chartType && data.length > 0 && (
                             <div className="mt-4">
-                              <InlineChatChart type={message.chartType} data={data} dateRange={message.dateRange} />
+                              <InlineChatChart
+                                type={message.chartType}
+                                data={data}
+                                dateRange={message.dateRange}
+                                projects={message.projects}
+                              />
                             </div>
                           )}
                         </>
@@ -720,7 +751,12 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                       )
                     ) : message.chartType && data.length > 0 ? (
                       // Chart-only message (no text)
-                      <InlineChatChart type={message.chartType} data={data} dateRange={message.dateRange} />
+                      <InlineChatChart
+                        type={message.chartType}
+                        data={data}
+                        dateRange={message.dateRange}
+                        projects={message.projects}
+                      />
                     ) : (
                       <LoadingSkeleton />
                     )}
@@ -740,6 +776,11 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
                   {/* Timestamp */}
                   {message.timestamp && (
                     <div className="chat-message-meta">
+                      {message.role === 'assistant' && message.confidence && (
+                        <span className={`chat-confidence chat-confidence-${message.confidence}`}>
+                          {message.confidence}
+                        </span>
+                      )}
                       <span className="chat-timestamp">{message.timestamp}</span>
                     </div>
                   )}

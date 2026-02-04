@@ -16,6 +16,7 @@ import time
 import re
 import io
 import base64
+import json
 import warnings
 from typing import Optional, Any
 
@@ -29,7 +30,7 @@ from pydantic import BaseModel, Field, field_validator
 from openai import OpenAI
 
 from app.config import get_settings, get_allowed_origins
-from app.snowflake_client import test_connection, execute_query
+from app.snowflake_client import test_connection, execute_query, close_all_connections
 
 # Configure logging
 logging.basicConfig(
@@ -54,6 +55,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Shutdown event handler - close all pooled Snowflake connections
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up pooled database connections on app shutdown."""
+    logger.info("Shutting down - closing Snowflake connection pool...")
+    close_all_connections()
+    logger.info("Connection pool closed")
 
 
 # ============================================================================
@@ -140,17 +150,37 @@ class ChatMessage(BaseModel):
     content: str
 
 
+class ChatFilterHints(BaseModel):
+    """Optional filter hints from the UI (not hard constraints)."""
+    project_numbers: Optional[list[str]] = None
+    start_month: Optional[str] = None
+    end_month: Optional[str] = None
+    district_id: Optional[str] = None
+    wbs_tags: Optional[dict[str, list[str]]] = None
+
+
+class ChatContextPrefs(BaseModel):
+    """Context preferences for chat behavior."""
+    exclude_current_month: bool = False
+
+
 class ChatRequest(BaseModel):
     """Request model for chat endpoint."""
     message: str = Field(..., min_length=1, max_length=4000, description="User's question")
-    data_context: str = Field(..., description="JSON or markdown summary of the cost data")
     history: list[ChatMessage] = Field(default=[], description="Previous messages in conversation")
+    filter_hints: Optional[ChatFilterHints] = None
+    context_prefs: Optional[ChatContextPrefs] = None
 
 
 class ChatResponse(BaseModel):
     """Response model for chat endpoint."""
     success: bool
-    response: str
+    answer: str
+    confidence: str
+    needs_clarification: bool
+    clarifying_question: Optional[str] = None
+    data_coverage: dict[str, int]
+    chart_request: Optional[dict[str, Any]] = None
     error: Optional[str] = None
 
 
@@ -310,34 +340,62 @@ async def api_query(request: QueryRequest):
 
 
 @app.get("/api/projects")
-async def api_projects():
+async def api_projects(
+    active_only: bool = Query(True, description="Filter to projects with recent activity (last 12 months)"),
+    district_id: Optional[str] = Query(None, description="Filter by district ID")
+):
     """
     Get list of available projects (for dropdown population).
     Returns distinct project numbers from the data.
+    Active projects are filtered by default to show only those with cost data in the last 12 months.
     """
-    logger.info("Fetching project list...")
-    
+    logger.info(f"Fetching project list... active_only={active_only}, district_id={district_id}")
+
     try:
-        sql = """
-        SELECT DISTINCT 
-            PROJECT_NUMBER,
-            LEAD_DISTRICT_ID,
-            LEAD_DISTRICT
-        FROM PROD_KDS_CONSUMPTION.SEM.PROJECT_EXPLORER_KDS
-        WHERE PROJECT_NUMBER IS NOT NULL
-        ORDER BY PROJECT_NUMBER
-        LIMIT 1000
-        """
-        
-        result = execute_query(sql)
-        
+        params = []
+        if active_only:
+            # Get projects that have cost data in the last 12 months
+            sql = """
+            SELECT DISTINCT
+                PE.PROJECT_NUMBER,
+                PE.LEAD_DISTRICT_ID,
+                PE.LEAD_DISTRICT
+            FROM PROD_KDS_CONSUMPTION.SEM.PROJECT_EXPLORER_KDS PE
+            INNER JOIN (
+                SELECT DISTINCT PROJECT_NUMBER
+                FROM PROD_ENT_CONSUMPTION.SEM_VW.CR_CUBE_DATA_WBS
+                WHERE FISCAL_YEAR_MONTH_NO >= TO_CHAR(DATEADD(month, -12, CURRENT_DATE()), 'YYYYMM')
+            ) CR ON PE.PROJECT_NUMBER = CR.PROJECT_NUMBER
+            WHERE PE.PROJECT_NUMBER IS NOT NULL
+            """
+            if district_id:
+                sql += " AND PE.LEAD_DISTRICT_ID = %s"
+                params.append(district_id)
+            sql += " ORDER BY PE.PROJECT_NUMBER LIMIT 1000"
+        else:
+            # Get all projects
+            sql = """
+            SELECT DISTINCT
+                PROJECT_NUMBER,
+                LEAD_DISTRICT_ID,
+                LEAD_DISTRICT
+            FROM PROD_KDS_CONSUMPTION.SEM.PROJECT_EXPLORER_KDS
+            WHERE PROJECT_NUMBER IS NOT NULL
+            """
+            if district_id:
+                sql += " AND LEAD_DISTRICT_ID = %s"
+                params.append(district_id)
+            sql += " ORDER BY PROJECT_NUMBER LIMIT 1000"
+
+        result = execute_query(sql, tuple(params) if params else None)
+
         return {
             "success": True,
             "projects": result["rows"],
             "count": result["row_count"],
             "timing_ms": result["timing_ms"]
         }
-        
+
     except Exception as e:
         logger.error(f"Failed to fetch projects: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -482,6 +540,14 @@ async def api_wbs_data(
         result = execute_query(sql, params)
         timing_ms = (time.time() - start_time) * 1000
 
+        # Debug: log sample of USER_DEFINED_13 values for revenue calculation troubleshooting
+        rows_with_multiplier = sum(1 for row in result["rows"] if row.get("USER_DEFINED_13"))
+        logger.info(f"WBS data: {result['row_count']} rows, {rows_with_multiplier} have USER_DEFINED_13 (multiplier)")
+        if result["rows"]:
+            sample_row = result["rows"][0]
+            logger.debug(f"Sample WBS row keys: {list(sample_row.keys())}")
+            logger.debug(f"Sample USER_DEFINED_13: {sample_row.get('USER_DEFINED_13')}")
+
         return {
             "success": True,
             "columns": result["columns"],
@@ -490,7 +556,10 @@ async def api_wbs_data(
             "query_id": result["query_id"],
             "timing_ms": timing_ms,
             "view_name": "PROD_ENT_CONSUMPTION.SEM_VW.WBS",
-            "message": f"Returned {result['row_count']} rows in {timing_ms:.0f}ms"
+            "message": f"Returned {result['row_count']} rows in {timing_ms:.0f}ms",
+            "debug": {
+                "rows_with_multiplier": rows_with_multiplier
+            }
         }
 
     except Exception as e:
@@ -565,12 +634,358 @@ def get_openai_client():
     return OpenAI(api_key=settings.openai_api_key, http_client=http_client)
 
 
-def get_system_prompt(data_context: str) -> str:
+MONTH_NAMES = {
+    "jan": "01", "january": "01",
+    "feb": "02", "february": "02",
+    "mar": "03", "march": "03",
+    "apr": "04", "april": "04",
+    "may": "05",
+    "jun": "06", "june": "06",
+    "jul": "07", "july": "07",
+    "aug": "08", "august": "08",
+    "sep": "09", "sept": "09", "september": "09",
+    "oct": "10", "october": "10",
+    "nov": "11", "november": "11",
+    "dec": "12", "december": "12",
+}
+
+
+def get_current_month_yyyymm() -> str:
+    now = time.localtime()
+    return f"{now.tm_year}{str(now.tm_mon).zfill(2)}"
+
+
+def parse_project_numbers(message: str) -> list[str]:
+    return list(dict.fromkeys(re.findall(r"\b\d{6}\b", message)))
+
+
+def parse_date_range(message: str) -> Optional[dict[str, str]]:
+    lower = message.lower()
+
+    yyyymm_matches = re.findall(r"\b(20\d{2})(0[1-9]|1[0-2])\b", lower)
+    if len(yyyymm_matches) >= 2:
+        start = f"{yyyymm_matches[0][0]}{yyyymm_matches[0][1]}"
+        end = f"{yyyymm_matches[1][0]}{yyyymm_matches[1][1]}"
+        return {"start": start, "end": end}
+    if len(yyyymm_matches) == 1:
+        single = f"{yyyymm_matches[0][0]}{yyyymm_matches[0][1]}"
+        return {"start": single, "end": single}
+
+    quarter_match = re.search(r"\bq([1-4])\s*(20\d{2})\b", lower)
+    if quarter_match:
+        quarter = int(quarter_match.group(1))
+        year = quarter_match.group(2)
+        start_month = str((quarter - 1) * 3 + 1).zfill(2)
+        end_month = str(quarter * 3).zfill(2)
+        return {"start": f"{year}{start_month}", "end": f"{year}{end_month}"}
+
+    range_match = re.search(
+        r"\b(" + "|".join(MONTH_NAMES.keys()) + r")\w*\s*(20\d{2})\s*(?:to|-|through)\s*(" +
+        "|".join(MONTH_NAMES.keys()) + r")\w*\s*(20\d{2})\b",
+        lower
+    )
+    if range_match:
+        start_month = MONTH_NAMES[range_match.group(1)]
+        start_year = range_match.group(2)
+        end_month = MONTH_NAMES[range_match.group(3)]
+        end_year = range_match.group(4)
+        return {"start": f"{start_year}{start_month}", "end": f"{end_year}{end_month}"}
+
+    single_match = re.search(r"\b(" + "|".join(MONTH_NAMES.keys()) + r")\w*\s*(20\d{2})\b", lower)
+    if single_match:
+        month = MONTH_NAMES[single_match.group(1)]
+        year = single_match.group(2)
+        return {"start": f"{year}{month}", "end": f"{year}{month}"}
+
+    year_match = re.search(r"\b(20\d{2})\b", lower)
+    if year_match:
+        year = year_match.group(1)
+        return {"start": f"{year}01", "end": f"{year}12"}
+
+    return None
+
+
+def classify_query_type(message: str) -> str:
+    lower = message.lower()
+    patterns = {
+        "trend": [r"trend", r"over time", r"month", r"period"],
+        "variance": [r"variance", r"over budget", r"under budget", r"unfavorable", r"favorable"],
+        "earned_value": [r"earned value", r"\bcpi\b", r"\bspi\b", r"percent complete"],
+        "breakdown": [r"by discipline", r"by firm", r"by area", r"by phase", r"by account", r"group by"],
+        "comparison": [r"compare", r"versus", r"\bvs\b", r"between"],
+        "aggregation": [r"total", r"sum", r"overall", r"how much", r"budget", r"spend"],
+        "fte": [r"\bfte\b", r"manhour", r"labor"],
+    }
+    for key, regs in patterns.items():
+        if any(re.search(r, lower) for r in regs):
+            return key
+    return "general"
+
+
+def resolve_scope(message: str, filter_hints: Optional[ChatFilterHints]) -> dict[str, Any]:
+    projects = parse_project_numbers(message)
+    date_range = parse_date_range(message)
+
+    if not projects and filter_hints and filter_hints.project_numbers:
+        projects = filter_hints.project_numbers
+
+    start_month = None
+    end_month = None
+    if date_range:
+        start_month = date_range.get("start")
+        end_month = date_range.get("end")
+    elif filter_hints:
+        start_month = filter_hints.start_month
+        end_month = filter_hints.end_month
+
+    return {
+        "projects": projects,
+        "start_month": start_month,
+        "end_month": end_month,
+        "date_range": date_range,
+    }
+
+
+def _coerce_float(value: Any) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def _root_rows(rows: list[dict]) -> list[dict]:
+    root = []
+    for row in rows:
+        cbs = row.get("CBS_HIERARCHY")
+        if cbs is None or str(cbs).strip() == "" or str(cbs).strip() == "-":
+            root.append(row)
+    return root if root else rows
+
+
+def _apply_date_filter(rows: list[dict], date_range: Optional[dict[str, str]]) -> list[dict]:
+    if not date_range:
+        return rows
+    start = date_range.get("start")
+    end = date_range.get("end")
+    filtered = []
+    for row in rows:
+        period = str(row.get("FISCAL_YEAR_MONTH_NO") or "")
+        if start and period < start:
+            continue
+        if end and period > end:
+            continue
+        filtered.append(row)
+    return filtered
+
+
+def build_data_context(
+    rows: list[dict],
+    query_type: str,
+    date_range: Optional[dict[str, str]],
+    exclude_current_month: bool
+) -> tuple[str, dict[str, int]]:
+    if exclude_current_month:
+        current = get_current_month_yyyymm()
+        rows = [r for r in rows if str(r.get("FISCAL_YEAR_MONTH_NO") or "") != current]
+
+    rows = _apply_date_filter(rows, date_range)
+    top_rows = _root_rows(rows)
+
+    projects = {str(r.get("PROJECT_NUMBER") or "") for r in rows if r.get("PROJECT_NUMBER") is not None}
+    periods = {str(r.get("FISCAL_YEAR_MONTH_NO") or "") for r in rows if r.get("FISCAL_YEAR_MONTH_NO") is not None}
+    coverage = {
+        "rowCount": len(rows),
+        "projectCount": len(projects),
+        "periodCount": len(periods),
+    }
+
+    def totals() -> dict[str, float]:
+        total_budget = sum(_coerce_float(r.get("CB_AMT")) for r in top_rows)
+        total_spend = sum(_coerce_float(r.get("JTD_SPEND")) for r in top_rows)
+        total_forecast = sum(_coerce_float(r.get("FORECAST_AMOUNT")) for r in top_rows)
+        total_mh = sum(_coerce_float(r.get("JTD_MH")) for r in top_rows)
+        return {
+            "budget": total_budget,
+            "spend": total_spend,
+            "forecast": total_forecast,
+            "variance": total_budget - total_forecast,
+            "manhours": total_mh,
+        }
+
+    def earned_value() -> dict[str, float]:
+        latest_period = max(periods) if periods else ""
+        latest_rows = [r for r in top_rows if str(r.get("FISCAL_YEAR_MONTH_NO") or "") == latest_period]
+        weighted_pct = 0.0
+        budget_weight = 0.0
+        for r in latest_rows:
+            budget = _coerce_float(r.get("CB_AMT"))
+            pct = _coerce_float(r.get("JTD_PERC_COMP"))
+            weighted_pct += budget * pct
+            budget_weight += budget
+        pct_complete = (weighted_pct / budget_weight) if budget_weight else 0.0
+        total_budget = sum(_coerce_float(r.get("CB_AMT")) for r in top_rows)
+        total_spend = sum(_coerce_float(r.get("JTD_SPEND")) for r in top_rows)
+        ev = (pct_complete / 100.0) * total_budget
+        cpi = (ev / total_spend) if total_spend else 0.0
+        return {
+            "percent_complete": pct_complete,
+            "earned_value": ev,
+            "cpi": cpi,
+        }
+
+    def trend(metric_key: str) -> list[dict[str, Any]]:
+        period_map: dict[str, float] = {}
+        for r in top_rows:
+            period = str(r.get("FISCAL_YEAR_MONTH_NO") or "")
+            value = _coerce_float(r.get(metric_key))
+            period_map[period] = period_map.get(period, 0.0) + value
+        cumulative = 0.0
+        items = []
+        for period in sorted(period_map.keys()):
+            value = period_map[period]
+            cumulative += value
+            items.append({"period": period, "value": value, "cumulative": cumulative})
+        return items
+
+    def variance_items() -> list[dict[str, Any]]:
+        items = []
+        for r in rows:
+            variance = _coerce_float(r.get("SL_VARIANCE"))
+            if variance == 0:
+                continue
+            items.append({
+                "project": str(r.get("PROJECT_NUMBER") or ""),
+                "cbs": str(r.get("CBS_HIERARCHY") or ""),
+                "description": str(r.get("WBS_DESCRIPTION") or "")[:40],
+                "variance": variance,
+            })
+        items.sort(key=lambda x: x["variance"])
+        top_unfavorable = items[:5]
+        top_favorable = list(reversed(items[-5:])) if len(items) >= 5 else list(reversed(items))
+        combined = {f"{i['project']}-{i['cbs']}": i for i in top_unfavorable + top_favorable}
+        return list(combined.values())
+
+    def breakdown(field: str) -> list[dict[str, Any]]:
+        groups: dict[str, dict[str, float]] = {}
+        for r in rows:
+            key = str(r.get(field) or "(No Value)")
+            if key not in groups:
+                groups[key] = {"spend": 0.0, "budget": 0.0, "manhours": 0.0}
+            groups[key]["spend"] += _coerce_float(r.get("JTD_SPEND"))
+            groups[key]["budget"] += _coerce_float(r.get("CB_AMT"))
+            groups[key]["manhours"] += _coerce_float(r.get("JTD_MH"))
+        sorted_groups = sorted(groups.items(), key=lambda x: x[1]["spend"], reverse=True)[:15]
+        return [{"label": key, **vals} for key, vals in sorted_groups]
+
+    totals_data = totals()
+    ev_data = earned_value()
+
+    lines = []
+    lines.append("## Data Coverage")
+    lines.append(f"- Rows: {coverage['rowCount']}")
+    lines.append(f"- Projects: {coverage['projectCount']}")
+    lines.append(f"- Periods: {coverage['periodCount']}")
+    lines.append("")
+    lines.append("## Summary Totals")
+    lines.append(f"- Total Budget: {totals_data['budget']:.2f}")
+    lines.append(f"- Total JTD Spend: {totals_data['spend']:.2f}")
+    lines.append(f"- Total Forecast: {totals_data['forecast']:.2f}")
+    lines.append(f"- Variance: {totals_data['variance']:.2f}")
+    lines.append(f"- Total Manhours: {totals_data['manhours']:.2f}")
+    lines.append("")
+    lines.append("## Earned Value")
+    lines.append(f"- % Complete: {ev_data['percent_complete']:.2f}")
+    lines.append(f"- Earned Value: {ev_data['earned_value']:.2f}")
+    lines.append(f"- CPI: {ev_data['cpi']:.2f}")
+    lines.append("")
+
+    if query_type == "trend":
+        trend_rows = trend("PER_SPEND")
+        lines.append("## Spend Trend (Period)")
+        for item in trend_rows[:24]:
+            lines.append(f"- {item['period']}: {item['value']:.2f} (cum {item['cumulative']:.2f})")
+        lines.append("")
+    elif query_type == "variance":
+        var_items = variance_items()
+        lines.append("## Top Variances")
+        for item in var_items:
+            lines.append(f"- {item['project']} {item['cbs']}: {item['variance']:.2f} ({item['description']})")
+        lines.append("")
+    elif query_type == "fte":
+        trend_rows = trend("PER_MH")
+        lines.append("## Manhours Trend (Period)")
+        for item in trend_rows[:24]:
+            lines.append(f"- {item['period']}: {item['value']:.2f} (cum {item['cumulative']:.2f})")
+        lines.append("")
+    elif query_type == "breakdown":
+        for field, label in [
+            ("D_GROUP", "Discipline"),
+            ("USER_DEFINED_7", "Firm"),
+            ("AREA", "Area"),
+            ("PHASE", "Phase"),
+            ("ACCOUNT_CODE", "Account"),
+        ]:
+            items = breakdown(field)
+            if items:
+                lines.append(f"## Breakdown by {label}")
+                for item in items:
+                    lines.append(f"- {item['label']}: Spend {item['spend']:.2f}, Budget {item['budget']:.2f}, MH {item['manhours']:.2f}")
+                lines.append("")
+                break
+
+    return "\n".join(lines), coverage
+
+
+def merge_cost_with_wbs(cost_rows: list[dict], wbs_rows: list[dict]) -> list[dict]:
+    wbs_map = {row.get("WBS_ELEMENT"): row for row in wbs_rows if row.get("WBS_ELEMENT")}
+    merged = []
+    for row in cost_rows:
+        wbs = wbs_map.get(row.get("WBS_ELEMENT"))
+        merged_row = dict(row)
+        if wbs:
+            multiplier_raw = wbs.get("USER_DEFINED_13")
+            try:
+                multiplier = float(multiplier_raw) if multiplier_raw is not None else None
+            except Exception:
+                multiplier = None
+            merged_row.update({
+                "AREA": wbs.get("AREA"),
+                "PHASE": wbs.get("PHASE"),
+                "D_GROUP": wbs.get("D-GROUP"),
+                "ACCOUNT_CODE_DESCRIPTION": wbs.get("ACCOUNT_CODE_DESCRIPTION"),
+                "USER_DEFINED_7": wbs.get("USER_DEFINED_7"),
+                "DISTRICT_SPECIFIC_TAG_16": wbs.get("DISTRICT_SPECIFIC_TAG_16"),
+                "DISTRICT_SPECIFIC_TAG_19": wbs.get("DISTRICT_SPECIFIC_TAG_19"),
+                "USER_DEFINED_12": wbs.get("USER_DEFINED_12"),
+                "MULTIPLIER": multiplier,
+                "TAG23": wbs.get("TAG23"),
+                "TAG25": wbs.get("TAG25"),
+            })
+        merged.append(merged_row)
+    return merged
+
+
+def get_system_prompt(data_context: str, filter_hints: Optional[ChatFilterHints], user_query: str) -> str:
     """Build the system prompt with data context."""
+    hints_json = json.dumps(filter_hints.dict() if filter_hints else {}, indent=2)
     return f"""You are a cost analyst assistant for construction project cost management. Be direct and professional.
 
 ## Data Context
 {data_context}
+
+## Filter Hints (Not Constraints)
+{hints_json}
+
+## Available Data Fields
+
+When the user asks for breakdowns or groupings, the following fields are available:
+- **D_GROUP (Discipline):** Engineering disciplines like STRUCTURES, CIVIL, ELECTRICAL, MECHANICAL, PIPING, INSTRUMENTATION
+- **USER_DEFINED_7 (Firm):** Vendor/contractor/firm names
+- **AREA:** Project area designations
+- **PHASE:** Project phases
+- **ACCOUNT_CODE:** Cost account codes
+
+If the user asks for a breakdown "by discipline" or "by firm", the context data above includes that breakdown.
 
 ## Response Format Guidelines
 
@@ -606,9 +1021,31 @@ CRITICAL FORMATTING RULES:
 3. **Flag issues** - **Critical** (>10% over), **Warning** (5-10%), **Watch** (<5%)
 4. **Be specific** - Reference actual project numbers and CBS codes
 5. **Tables for data** - Use markdown tables for numeric comparisons
+6. **Minimal formatting** - Use headers sparingly (1-2 per response max). Only bold key numbers, not phrases.
+7. **Plain text preferred** - Use plain text for explanations. Reserve bold/headers for emphasis.
+8. **No redundant structure** - Don't add headers if a simple sentence suffices.
 
 ## Key Terms
 CB=Current Budget, JTD=Job-to-Date, Fcst=Forecast, Var=Variance (+favorable/-unfavorable), CBS=Cost Breakdown, PF=Performance Factor (>1=unfavorable), CF=Cost Factor (>1=over budget)
+
+## Output Format (JSON Only)
+Return a single JSON object with these fields:
+- "answer": string (empty if you need clarification)
+- "confidence": "high" | "medium" | "low"
+- "needs_clarification": boolean
+- "clarifying_question": string | null
+- "chart_request": object | null
+
+If the question requests a chart or visualization, set "chart_request" to:
+{{
+  "type": "spend-trend" | "earned-value" | "project-comparison" | "budget-pie" | "variance",
+  "metric": string | null,
+  "groupBy": string | null,
+  "projects": string[] | null,
+  "dateRange": {{ "start": "YYYYMM", "end": "YYYYMM" }} | null
+}}
+
+Never include any text outside the JSON object.
 
 ## FTE (Full-Time Equivalent) Calculations
 
@@ -646,36 +1083,136 @@ async def api_chat(request: ChatRequest):
     try:
         client = get_openai_client()
 
-        # Build messages
-        messages = [{"role": "system", "content": get_system_prompt(request.data_context)}]
+        settings = get_settings()
+        scope = resolve_scope(request.message, request.filter_hints)
+        projects = scope["projects"]
+        start_month = scope["start_month"]
+        end_month = scope["end_month"]
+        date_range = scope["date_range"]
 
-        for msg in request.history[-10:]:
-            messages.append({"role": msg.role, "content": msg.content})
+        if not projects:
+            return ChatResponse(
+                success=True,
+                answer="",
+                confidence="low",
+                needs_clarification=True,
+                clarifying_question="Which project number(s) should I use for this analysis?",
+                data_coverage={"rowCount": 0, "projectCount": 0, "periodCount": 0},
+                chart_request=None
+            )
 
-        messages.append({"role": "user", "content": request.message})
+        if not start_month:
+            return ChatResponse(
+                success=True,
+                answer="",
+                confidence="low",
+                needs_clarification=True,
+                clarifying_question="What fiscal month or date range should I use (e.g., 202401 or Jan 2024 to Dec 2024)?",
+                data_coverage={"rowCount": 0, "projectCount": 0, "periodCount": 0},
+                chart_request=None
+            )
 
-        # Call OpenAI API
-        response = client.chat.completions.create(
-            model="gpt-5.2",
-            messages=messages,
-            max_completion_tokens=1000,
-            temperature=0.3
+        if len(projects) > settings.max_projects:
+            return ChatResponse(
+                success=False,
+                answer="",
+                confidence="low",
+                needs_clarification=True,
+                clarifying_question=f"Please narrow the request to {settings.max_projects} projects or fewer.",
+                data_coverage={"rowCount": 0, "projectCount": 0, "periodCount": 0},
+                chart_request=None,
+                error=f"Maximum {settings.max_projects} projects allowed"
+            )
+
+        sql, params = build_cr_cube_query(
+            project_numbers=projects,
+            start_month=start_month,
+            end_month=end_month,
+            limit=settings.max_limit
+        )
+        cost_result = execute_query(sql, params)
+
+        wbs_sql, wbs_params = build_wbs_query(projects, limit=100000)
+        wbs_result = execute_query(wbs_sql, wbs_params)
+
+        merged_rows = merge_cost_with_wbs(cost_result["rows"], wbs_result["rows"])
+        query_type = classify_query_type(request.message)
+
+        exclude_current = request.context_prefs.exclude_current_month if request.context_prefs else False
+        data_context, coverage = build_data_context(
+            merged_rows,
+            query_type=query_type,
+            date_range=date_range,
+            exclude_current_month=exclude_current
         )
 
-        assistant_response = response.choices[0].message.content
+        messages = [{"role": "system", "content": get_system_prompt(data_context, request.filter_hints, request.message)}]
+        for msg in request.history[-10:]:
+            messages.append({"role": msg.role, "content": msg.content})
+        messages.append({"role": "user", "content": request.message})
 
+        response = client.chat.completions.create(
+            model="gpt-4o",
+            messages=messages,
+            max_completion_tokens=900,
+            temperature=0.2
+        )
+
+        assistant_response = response.choices[0].message.content or ""
         logger.info(f"Chat response generated: {len(assistant_response)} chars")
+
+        try:
+            parsed = json.loads(assistant_response)
+        except Exception:
+            extracted = None
+            if "{" in assistant_response and "}" in assistant_response:
+                extracted = assistant_response[assistant_response.find("{"):assistant_response.rfind("}") + 1]
+            if extracted:
+                try:
+                    parsed = json.loads(extracted)
+                except Exception:
+                    parsed = None
+            else:
+                parsed = None
+            if parsed is None:
+                parsed = {
+                    "answer": assistant_response.strip(),
+                    "confidence": "medium",
+                    "needs_clarification": False,
+                    "clarifying_question": None,
+                    "chart_request": None,
+                }
+
+        confidence = str(parsed.get("confidence", "medium")).lower()
+        needs_clarification = bool(parsed.get("needs_clarification"))
+        clarifying_question = parsed.get("clarifying_question")
+        answer = parsed.get("answer") or ""
+
+        if confidence == "low" or needs_clarification:
+            answer = ""
+            needs_clarification = True
+            if not clarifying_question:
+                clarifying_question = "Can you clarify the scope (projects and date range) you want to analyze?"
 
         return ChatResponse(
             success=True,
-            response=assistant_response
+            answer=answer,
+            confidence=confidence if confidence in ("high", "medium", "low") else "medium",
+            needs_clarification=needs_clarification,
+            clarifying_question=clarifying_question,
+            data_coverage=coverage,
+            chart_request=parsed.get("chart_request")
         )
 
     except Exception as e:
         logger.error(f"Chat error: {e}")
         return ChatResponse(
             success=False,
-            response="",
+            answer="",
+            confidence="low",
+            needs_clarification=True,
+            clarifying_question="I hit an error while analyzing the data. Can you retry or narrow the request?",
+            data_coverage={"rowCount": 0, "projectCount": 0, "periodCount": 0},
             error=f"AI service error: {str(e)}"
         )
 
@@ -690,26 +1227,14 @@ async def api_chat_stream(request: ChatRequest):
 
     async def generate():
         try:
-            client = get_openai_client()
+            response = await api_chat(request)
+            if not response.success:
+                yield f"data: [ERROR] {response.error or 'Chat error'}\n\n"
+                return
 
-            messages = [{"role": "system", "content": get_system_prompt(request.data_context)}]
-
-            for msg in request.history[-10:]:
-                messages.append({"role": msg.role, "content": msg.content})
-
-            messages.append({"role": "user", "content": request.message})
-
-            stream = client.chat.completions.create(
-                model="gpt-5.2",
-                messages=messages,
-                max_completion_tokens=1000,
-                temperature=0.3,
-                stream=True
-            )
-
-            for chunk in stream:
-                if chunk.choices[0].delta.content:
-                    yield f"data: {chunk.choices[0].delta.content}\n\n"
+            content = response.clarifying_question if response.needs_clarification else response.answer
+            for token in content.split(" "):
+                yield f"data: {token} \n\n"
 
             yield "data: [DONE]\n\n"
 
@@ -1052,7 +1577,7 @@ async def api_custom_voice_consent(
     """
     import httpx
 
-    logger.info(f"Processing consent recording: {audio.filename}, language={language_tag}")
+    logger.info(f"Processing consent recording: {audio.filename}, language={language_tag}, content_type={audio.content_type}")
 
     settings = get_settings()
     if not settings.openai_api_key:
@@ -1063,6 +1588,15 @@ async def api_custom_voice_consent(
 
     # Validate file size (10MB max)
     content = await audio.read()
+    content_size_kb = len(content) / 1024
+    logger.info(f"Consent audio size: {content_size_kb:.1f} KB")
+
+    if len(content) < 1024:  # Less than 1KB is too small
+        raise HTTPException(
+            status_code=422,
+            detail="Audio file too small. Please record the full consent phrase."
+        )
+
     if len(content) > 10 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Audio file too large. Maximum size is 10MB.")
 
@@ -1079,16 +1613,17 @@ async def api_custom_voice_consent(
     try:
         async with httpx.AsyncClient(verify=False) as client:
             # Upload consent to OpenAI custom voice API
+            # Note: Custom voices require OpenAI approval - contact sales@openai.com
+            # API Reference: https://platform.openai.com/docs/api-reference/audio/
             files = {
                 'file': (audio.filename or 'consent.webm', content, audio.content_type or 'audio/webm')
             }
             data = {
-                'language_tag': language_tag,
-                'consent_type': 'voice_cloning'
+                'language_tag': language_tag
             }
 
             response = await client.post(
-                "https://api.openai.com/v1/audio/voice-consents",
+                "https://api.openai.com/v1/audio/voice_consents",  # Note: underscore not hyphen
                 headers={
                     "Authorization": f"Bearer {settings.openai_api_key}",
                 },
@@ -1097,10 +1632,20 @@ async def api_custom_voice_consent(
                 timeout=60.0
             )
 
+            logger.info(f"OpenAI consent response: {response.status_code}")
+
             if response.status_code == 403:
                 raise HTTPException(
                     status_code=403,
-                    detail="Custom voices require OpenAI approval. Contact sales@openai.com"
+                    detail="Custom voices require OpenAI approval. Your organization must be approved for custom voice access. Contact sales@openai.com or your OpenAI account director."
+                )
+
+            if response.status_code == 404:
+                error_text = response.text
+                logger.error(f"OpenAI 404 response: {error_text}")
+                raise HTTPException(
+                    status_code=403,
+                    detail="Custom voices are limited to eligible customers. Your organization does not have access to this feature. Contact OpenAI sales at sales@openai.com to request access."
                 )
 
             if response.status_code == 422:
@@ -1206,10 +1751,20 @@ async def api_custom_voice_create(
                 timeout=120.0  # Voice creation may take longer
             )
 
+            logger.info(f"OpenAI voice creation response: {response.status_code}")
+
             if response.status_code == 403:
                 raise HTTPException(
                     status_code=403,
-                    detail="Custom voices require OpenAI approval. Contact sales@openai.com"
+                    detail="Custom voices require OpenAI approval. Your organization must be approved for custom voice access. Contact sales@openai.com"
+                )
+
+            if response.status_code == 404:
+                error_text = response.text
+                logger.error(f"OpenAI 404 response: {error_text}")
+                raise HTTPException(
+                    status_code=403,
+                    detail="Custom voices are limited to eligible customers. Your organization does not have access to this feature. Contact OpenAI sales at sales@openai.com to request access."
                 )
 
             if response.status_code == 422:

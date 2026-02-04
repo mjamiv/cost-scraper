@@ -9,7 +9,7 @@ import { DataExportPanel } from './components/DataExportPanel';
 import { ChatInterface } from './components/ChatInterface';
 import { VoiceChatPanel } from './components/VoiceChatPanel';
 // WBSDataInspector removed - functionality integrated into main flow
-import { fetchCostData, fetchWBSData, isStaticDeployment } from './api/costDataApi';
+import { fetchCostData, fetchWBSData, isStaticDeployment, ChartRequest } from './api/costDataApi';
 import { CostDataRow, QueryFilters, WBSDataRow } from './api/types';
 import { mergeCostDataWithTags, filterByWBSTags, CostDataRowWithTags } from './utils/wbsDataMerger';
 
@@ -34,6 +34,7 @@ function App() {
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
   const [aboutOpen, setAboutOpen] = useState(false);
   const [voiceChatOpen, setVoiceChatOpen] = useState(false);
+  const [chatChartRequest, setChatChartRequest] = useState<ChartRequest | null>(null);
 
   // Reset sidebar auto-close timer (called on user activity)
   const resetSidebarTimer = useCallback(() => {
@@ -163,6 +164,22 @@ function App() {
     }
   }, [handleSearch]);
 
+  const handleChatChartRequest = useCallback((request: ChartRequest) => {
+    setChatChartRequest(request);
+    setRightPanelOpen(true);
+    setRightPanelTab('chart');
+  }, []);
+
+  const filterHints = useMemo(() => ({
+    project_numbers: filters.projectNumbers
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean),
+    start_month: filters.startMonth || undefined,
+    district_id: filters.districtId || undefined,
+    wbs_tags: filters.wbsTags || {},
+  }), [filters]);
+
   return (
     <div className="app-layout">
       {/* Header */}
@@ -266,8 +283,10 @@ function App() {
 
           {/* Chat Interface */}
           <ChatInterface
-            data={data}
+            data={mergedData}
             onCommand={handleChatCommand}
+            filterHints={filterHints}
+            onChartRequest={handleChatChartRequest}
           />
         </main>
 
@@ -281,8 +300,8 @@ function App() {
         >
           {rightPanelTab === 'chart' && (
             <div className="right-panel-chart-container">
-              {data.length > 0 ? (
-                <CostCharts data={data} />
+              {mergedData.length > 0 ? (
+                <CostCharts data={mergedData} chartRequest={chatChartRequest} />
               ) : (
                 <div className="panel-empty-state">
                   <p>No data loaded. Use filters to load project data.</p>
@@ -371,7 +390,7 @@ function App() {
 
       {/* Voice Chat Panel */}
       <VoiceChatPanel
-        data={data}
+        data={mergedData}
         isOpen={voiceChatOpen}
         onClose={() => setVoiceChatOpen(false)}
       />

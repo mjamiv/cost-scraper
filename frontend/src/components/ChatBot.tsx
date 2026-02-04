@@ -1,9 +1,8 @@
-import { useState, useRef, useEffect, useCallback, ReactNode } from 'react';
+import { useState, useRef, useEffect, ReactNode } from 'react';
 import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CostDataRow } from '../api/types';
-import { ChatMessage, streamChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
-import { generateMarkdownSummary } from '../utils/llmDataFormatter';
+import { ChatMessage, sendChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
 
 interface ChatBotProps {
   data: CostDataRow[];
@@ -191,14 +190,6 @@ export function ChatBot({ data }: ChatBotProps) {
     }
   }, [isOpen]);
 
-  // Generate data context for the AI
-  const getDataContext = useCallback(() => {
-    if (!data.length) {
-      return 'No cost data is currently loaded. Please load some project data first.';
-    }
-    return generateMarkdownSummary(data);
-  }, [data]);
-
   // Play audio response
   const playAudioResponse = async (text: string) => {
     if (!voiceEnabled || !text) return;
@@ -303,24 +294,27 @@ export function ChatBot({ data }: ChatBotProps) {
     setMessages(prev => [...prev, { role: 'assistant', content: '' }]);
 
     try {
-      const dataContext = getDataContext();
-      let fullResponse = '';
-
-      for await (const chunk of streamChatMessage({
+      const response = await sendChatMessage({
         message: userMessage,
-        data_context: dataContext,
         history: messages,
-      })) {
-        fullResponse += chunk;
-        setMessages(prev => {
-          const updated = [...prev];
-          updated[updated.length - 1] = { role: 'assistant', content: fullResponse };
-          return updated;
-        });
+      });
+
+      if (!response.success) {
+        throw new Error(response.error || 'Chat error');
       }
 
-      if (voiceEnabled && fullResponse) {
-        playAudioResponse(fullResponse);
+      const content = response.needs_clarification
+        ? (response.clarifying_question || 'Can you clarify your request?')
+        : response.answer;
+
+      setMessages(prev => {
+        const updated = [...prev];
+        updated[updated.length - 1] = { role: 'assistant', content };
+        return updated;
+      });
+
+      if (voiceEnabled && content) {
+        playAudioResponse(content);
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An error occurred';

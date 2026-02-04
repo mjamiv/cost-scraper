@@ -12,10 +12,11 @@ import {
   TooltipProps,
 } from 'recharts';
 import { CostDataRow } from '../api/types';
-import { excludeCurrentMonth } from '../utils/llmDataFormatter';
+import { ChartRequest } from '../api/costDataApi';
 
 interface CostChartsProps {
   data: CostDataRow[];
+  chartRequest?: ChartRequest | null;
 }
 
 interface ChartDataPoint {
@@ -26,6 +27,8 @@ interface ChartDataPoint {
   percentComplete: number;
   pf: number;
   cf: number;
+  manhours: number;
+  cumulativeManhours: number;
 }
 
 // Brand colors - gold/black theme
@@ -75,6 +78,22 @@ function formatPeriodLabelFull(period: string): string {
   const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
   const monthIndex = parseInt(month, 10) - 1;
   return `${monthNames[monthIndex]} ${year}`;
+}
+
+function filterByProjects(data: CostDataRow[], projects?: string[] | null): CostDataRow[] {
+  if (!projects || projects.length === 0) return data;
+  const set = new Set(projects.map(p => String(p)));
+  return data.filter(row => set.has(String(row.PROJECT_NUMBER)));
+}
+
+function filterByDateRange(data: CostDataRow[], dateRange?: { start?: string; end?: string } | null): CostDataRow[] {
+  if (!dateRange || (!dateRange.start && !dateRange.end)) return data;
+  return data.filter(row => {
+    const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+    if (dateRange.start && period < dateRange.start) return false;
+    if (dateRange.end && period > dateRange.end) return false;
+    return true;
+  });
 }
 
 // Custom dark tooltip component
@@ -150,14 +169,14 @@ function KpiCard({
   );
 }
 
-export function CostCharts({ data }: CostChartsProps) {
+export function CostCharts({ data, chartRequest }: CostChartsProps) {
   const [dateRange, setDateRange] = useState<[number, number]>([0, 100]);
 
   const allChartData = useMemo<ChartDataPoint[]>(() => {
     if (!data.length) return [];
 
-    // Exclude current month - data is typically incomplete
-    const filteredData = excludeCurrentMonth(data);
+    const scopedData = filterByProjects(data, chartRequest?.projects);
+    const filteredData = filterByDateRange(scopedData, chartRequest?.dateRange);
 
     // Check if there are any ROOT-level rows (empty CBS_HIERARCHY)
     // Root rows contain the project totals - children are already summed into these
@@ -180,6 +199,8 @@ export function CostCharts({ data }: CostChartsProps) {
       pfCount: number;
       cf: number;
       cfCount: number;
+      perMH: number;
+      jtdMH: number;
     }
 
     const periodData = new Map<string, PeriodAgg>();
@@ -196,6 +217,8 @@ export function CostCharts({ data }: CostChartsProps) {
         pfCount: 0,
         cf: 0,
         cfCount: 0,
+        perMH: 0,
+        jtdMH: 0,
       };
 
       const jtd = parseFloat(String(row.JTD_SPEND)) || 0;
@@ -204,10 +227,14 @@ export function CostCharts({ data }: CostChartsProps) {
       const jtdPercComp = parseFloat(String(row.JTD_PERC_COMP)) || 0;
       const jtdPf = parseFloat(String(row.JTD_PF)) || 0;
       const jtdCf = parseFloat(String(row.JTD_CF)) || 0;
+      const perMH = parseFloat(String(row.PER_MH)) || 0;
+      const jtdMH = parseFloat(String(row.JTD_MH)) || 0;
 
       existing.jtdSpend += jtd;
       existing.perSpend += per;
       existing.budget += budget;
+      existing.perMH += perMH;
+      existing.jtdMH += jtdMH;
 
       // Only count non-zero values for averaging
       if (jtdPercComp > 0) {
@@ -231,9 +258,11 @@ export function CostCharts({ data }: CostChartsProps) {
 
     if (hasPerSpendData) {
       let cumulative = 0;
+      let cumulativeMH = 0;
       return sortedPeriods.map((period) => {
         const d = periodData.get(period)!;
         cumulative += d.perSpend;
+        cumulativeMH += d.perMH;
         const percComp = d.percentCompleteCount > 0 ? d.percentComplete / d.percentCompleteCount : 0;
         // Earned Value = % Complete × Budget
         const earnedValue = percComp * d.budget;
@@ -245,6 +274,8 @@ export function CostCharts({ data }: CostChartsProps) {
           percentComplete: percComp,
           pf: d.pfCount > 0 ? d.pf / d.pfCount : 0,
           cf: d.cfCount > 0 ? d.cf / d.cfCount : 0,
+          manhours: d.perMH,
+          cumulativeManhours: cumulativeMH,
         };
       });
     } else {
@@ -264,17 +295,22 @@ export function CostCharts({ data }: CostChartsProps) {
           percentComplete: percComp,
           pf: d.pfCount > 0 ? d.pf / d.pfCount : 0,
           cf: d.cfCount > 0 ? d.cf / d.cfCount : 0,
+          manhours: d.perMH,
+          cumulativeManhours: d.jtdMH,
         };
       });
     }
-  }, [data]);
+  }, [data, chartRequest]);
 
   const chartData = useMemo(() => {
     if (!allChartData.length) return [];
+    if (chartRequest?.dateRange || (chartRequest?.projects && chartRequest.projects.length > 0)) {
+      return allChartData;
+    }
     const startIdx = Math.floor((dateRange[0] / 100) * allChartData.length);
     const endIdx = Math.ceil((dateRange[1] / 100) * allChartData.length);
     return allChartData.slice(startIdx, Math.max(endIdx, startIdx + 1));
-  }, [allChartData, dateRange]);
+  }, [allChartData, dateRange, chartRequest]);
 
   const stats = useMemo(() => {
     if (!chartData.length) return null;
@@ -289,7 +325,12 @@ export function CostCharts({ data }: CostChartsProps) {
     const pf = latestData?.pf || 0;
     const cf = latestData?.cf || 0;
 
-    return { totalSpend, avgMonthlySpend, numPeriods: chartData.length, earnedValue, percentComplete, pf, cf };
+    // Calculate total manhours and average monthly manhours
+    const totalManhours = chartData[chartData.length - 1]?.cumulativeManhours || 0;
+    const monthlyManhours = chartData.map((d) => d.manhours);
+    const avgMonthlyManhours = monthlyManhours.reduce((a, b) => a + b, 0) / monthlyManhours.length;
+
+    return { totalSpend, avgMonthlySpend, numPeriods: chartData.length, earnedValue, percentComplete, pf, cf, totalManhours, avgMonthlyManhours };
   }, [chartData]);
 
   // Calculate trend indicator (compare last 3 periods vs previous 3)
@@ -313,8 +354,9 @@ export function CostCharts({ data }: CostChartsProps) {
 
   if (!data.length) return null;
 
-  const startPeriod = allChartData[Math.floor((dateRange[0] / 100) * allChartData.length)]?.period || '';
-  const endPeriod = allChartData[Math.min(Math.ceil((dateRange[1] / 100) * allChartData.length), allChartData.length) - 1]?.period || '';
+  const displayData = chartData.length ? chartData : allChartData;
+  const startPeriod = displayData[0]?.period || '';
+  const endPeriod = displayData[displayData.length - 1]?.period || '';
 
   return (
     <div className="mb-6 rounded-lg overflow-hidden border border-neutral-800">
@@ -341,46 +383,48 @@ export function CostCharts({ data }: CostChartsProps) {
       </div>
 
       {/* Chart Area */}
-      <div className="bg-neutral-950 p-6">
+        <div className="bg-neutral-950 p-6">
         {/* Date Range Slider */}
-        <div className="mb-6 pb-4 border-b border-neutral-800">
-          <div className="flex items-center gap-6">
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
-                Start Period
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={dateRange[0]}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value);
-                  setDateRange([Math.min(val, dateRange[1] - 5), dateRange[1]]);
-                }}
-                className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer"
-                style={{ accentColor: COLORS.gold }}
-              />
-            </div>
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
-                End Period
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={dateRange[1]}
-                onChange={(e) => {
-                  const val = parseInt(e.target.value);
-                  setDateRange([dateRange[0], Math.max(val, dateRange[0] + 5)]);
-                }}
-                className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer"
-                style={{ accentColor: COLORS.gold }}
-              />
+        {!chartRequest?.dateRange && (
+          <div className="mb-6 pb-4 border-b border-neutral-800">
+            <div className="flex items-center gap-6">
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+                  Start Period
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={dateRange[0]}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setDateRange([Math.min(val, dateRange[1] - 5), dateRange[1]]);
+                  }}
+                  className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer"
+                  style={{ accentColor: COLORS.gold }}
+                />
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs font-medium text-neutral-500 uppercase tracking-wide mb-2">
+                  End Period
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="100"
+                  value={dateRange[1]}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value);
+                    setDateRange([dateRange[0], Math.max(val, dateRange[0] + 5)]);
+                  }}
+                  className="w-full h-1.5 bg-neutral-800 rounded-lg appearance-none cursor-pointer"
+                  style={{ accentColor: COLORS.gold }}
+                />
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Chart */}
         <div style={{ width: '100%', height: 380 }}>
@@ -482,7 +526,7 @@ export function CostCharts({ data }: CostChartsProps) {
       {/* Footer with KPI Cards */}
       {stats && (
         <div className="bg-neutral-900 px-6 py-4 border-t border-neutral-800">
-          <div className="grid grid-cols-6 gap-3">
+          <div className="grid grid-cols-4 md:grid-cols-8 gap-3">
             <KpiCard
               label="Total Spend"
               value={formatFullCurrency(stats.totalSpend)}
@@ -492,6 +536,18 @@ export function CostCharts({ data }: CostChartsProps) {
               label="Avg. Monthly"
               value={formatFullCurrency(stats.avgMonthlySpend)}
               variant="blue"
+            />
+            <KpiCard
+              label="Total Hours"
+              value={new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(stats.totalManhours)}
+              variant="teal"
+              subtext="JTD Manhours"
+            />
+            <KpiCard
+              label="Avg. Monthly"
+              value={new Intl.NumberFormat('en-US', { maximumFractionDigits: 0 }).format(stats.avgMonthlyManhours)}
+              variant="cyan"
+              subtext="Hours/Period"
             />
             <KpiCard
               label="Earned Value"

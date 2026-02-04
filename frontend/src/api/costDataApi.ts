@@ -1,4 +1,4 @@
-import { CostDataResponse, FilterOptions, QueryFilters, WBSDataResponse } from './types';
+import { CostDataResponse, FilterOptions, QueryFilters, WBSDataResponse, ProjectsResponse, Project } from './types';
 import { getMockCostDataResponse } from './mockData';
 
 const API_BASE = '/api';
@@ -74,23 +74,39 @@ export async function fetchDistricts() {
   return response.json();
 }
 
-export async function fetchProjects(districtId?: string) {
+export async function fetchProjects(
+  districtId?: string,
+  activeOnly: boolean = true
+): Promise<ProjectsResponse> {
   if (isStaticDeployment) {
-    const projects = ['106049', '104831', '105553', '104834', '106073', '106345', '105119', '104980'];
-    return projects.map(p => ({
-      PROJECT_NUMBER: p,
-      LEAD_DISTRICT_ID: 'SE5001',
-      LEAD_DISTRICT: 'Southeast Region',
-    }));
+    const mockProjects: Project[] = [
+      { PROJECT_NUMBER: '106049', PROJECT_DESCRIPTION: 'IH-35 Corridor Expansion', LEAD_DISTRICT_ID: 'SE5001', LEAD_DISTRICT: 'Southeast Region' },
+      { PROJECT_NUMBER: '104831', PROJECT_DESCRIPTION: 'US-290 Bridge Replacement', LEAD_DISTRICT_ID: 'SE5001', LEAD_DISTRICT: 'Southeast Region' },
+      { PROJECT_NUMBER: '105553', PROJECT_DESCRIPTION: 'SH-130 Toll Road Phase 2', LEAD_DISTRICT_ID: 'NW3002', LEAD_DISTRICT: 'Northwest Division' },
+      { PROJECT_NUMBER: '104834', PROJECT_DESCRIPTION: 'Loop 360 Interchange', LEAD_DISTRICT_ID: 'CE4003', LEAD_DISTRICT: 'Central Operations' },
+      { PROJECT_NUMBER: '106073', PROJECT_DESCRIPTION: 'MoPac South Extension', LEAD_DISTRICT_ID: 'SE5001', LEAD_DISTRICT: 'Southeast Region' },
+      { PROJECT_NUMBER: '106345', PROJECT_DESCRIPTION: 'FM 620 Widening Project', LEAD_DISTRICT_ID: 'NW3002', LEAD_DISTRICT: 'Northwest Division' },
+      { PROJECT_NUMBER: '105119', PROJECT_DESCRIPTION: 'IH-10 Katy Freeway', LEAD_DISTRICT_ID: 'SE5001', LEAD_DISTRICT: 'Southeast Region' },
+      { PROJECT_NUMBER: '104980', PROJECT_DESCRIPTION: 'US-183 Safety Improvements', LEAD_DISTRICT_ID: 'CE4003', LEAD_DISTRICT: 'Central Operations' },
+    ];
+    return {
+      success: true,
+      projects: districtId ? mockProjects.filter(p => p.LEAD_DISTRICT_ID === districtId) : mockProjects,
+      count: mockProjects.length,
+      timing_ms: 0
+    };
   }
 
-  const params = districtId ? `?district_id=${districtId}` : '';
-  const response = await fetch(`${API_BASE}/projects${params}`);
-  
+  const params = new URLSearchParams();
+  if (districtId) params.append('district_id', districtId);
+  params.append('active_only', activeOnly.toString());
+
+  const response = await fetch(`${API_BASE}/projects?${params.toString()}`);
+
   if (!response.ok) {
     throw new Error(`API Error: ${response.status} ${response.statusText}`);
   }
-  
+
   return response.json();
 }
 
@@ -100,15 +116,41 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface ChatFilterHints {
+  project_numbers?: string[];
+  start_month?: string;
+  end_month?: string;
+  district_id?: string;
+  wbs_tags?: Record<string, string[]>;
+}
+
+export interface ChatContextPrefs {
+  exclude_current_month?: boolean;
+}
+
+export interface ChartRequest {
+  type: 'spend-trend' | 'earned-value' | 'project-comparison' | 'budget-pie' | 'variance';
+  metric?: string | null;
+  groupBy?: string | null;
+  projects?: string[] | null;
+  dateRange?: { start?: string; end?: string } | null;
+}
+
 export interface ChatRequest {
   message: string;
-  data_context: string;
   history: ChatMessage[];
+  filter_hints?: ChatFilterHints;
+  context_prefs?: ChatContextPrefs;
 }
 
 export interface ChatResponse {
   success: boolean;
-  response: string;
+  answer: string;
+  confidence: 'high' | 'medium' | 'low';
+  needs_clarification: boolean;
+  clarifying_question?: string | null;
+  data_coverage: { rowCount: number; projectCount: number; periodCount: number };
+  chart_request?: ChartRequest | null;
   error?: string;
 }
 
@@ -118,7 +160,12 @@ export async function sendChatMessage(request: ChatRequest): Promise<ChatRespons
     await new Promise(resolve => setTimeout(resolve, 800));
     return {
       success: true,
-      response: `This is a demo response. In production, this would analyze your cost data and answer: "${request.message}"\n\nTo enable the AI chatbot, connect to a backend with the ANTHROPIC_API_KEY configured.`
+      answer: `This is a demo response. In production, this would analyze your cost data and answer: "${request.message}".`,
+      confidence: 'medium',
+      needs_clarification: false,
+      clarifying_question: null,
+      data_coverage: { rowCount: 0, projectCount: 0, periodCount: 0 },
+      chart_request: null
     };
   }
 

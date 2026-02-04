@@ -398,7 +398,9 @@ body {
 .chat-container {
   @apply flex-1 flex flex-col;
   position: relative;
-  height: 100%;
+  /* Explicit height constraint for proper scrolling - see CLAUDE.md CSS notes */
+  height: calc(100vh - var(--header-height));
+  max-height: calc(100vh - var(--header-height));
   min-height: 0; /* Important for flex children to scroll */
   overflow: hidden;
 }
@@ -443,6 +445,29 @@ body {
   max-width: 900px;
   margin: 0 auto;
   width: 100%;
+  /* Make scrollbar always visible */
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-neutral-600) var(--color-neutral-800);
+}
+
+/* Explicit scrollbar styling for chat messages */
+.chat-messages::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chat-messages::-webkit-scrollbar-track {
+  background: var(--color-neutral-800);
+  border-radius: 5px;
+}
+
+.chat-messages::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-600);
+  border-radius: 5px;
+  border: 2px solid var(--color-neutral-800);
+}
+
+.chat-messages::-webkit-scrollbar-thumb:hover {
+  background: var(--color-gold);
 }
 
 /* Welcome Screen */
@@ -595,11 +620,35 @@ body {
 /* Timestamp */
 .chat-message-meta {
   @apply mt-1.5 px-1;
+  @apply flex items-center gap-2;
 }
 
 .chat-timestamp {
   @apply text-xs;
   color: var(--color-neutral-600);
+}
+
+.chat-confidence {
+  @apply text-[10px] uppercase font-semibold tracking-wide px-2 py-0.5 rounded-full;
+  border: 1px solid var(--color-neutral-700);
+}
+
+.chat-confidence-high {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.1);
+}
+
+.chat-confidence-medium {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.3);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.chat-confidence-low {
+  color: #ef4444;
+  border-color: rgba(239, 68, 68, 0.3);
+  background: rgba(239, 68, 68, 0.1);
 }
 
 /* Copy button - Enhanced */
@@ -825,22 +874,21 @@ body {
 .chat-markdown h2,
 .chat-markdown h3,
 .chat-markdown h4 {
-  @apply font-semibold mt-6 mb-3 first:mt-0;
+  @apply font-semibold mt-4 mb-2 first:mt-0;
   color: var(--color-white);
 }
 
-.chat-markdown h1 { @apply text-lg pb-2; border-bottom: 1px solid var(--color-neutral-800); }
-.chat-markdown h2 { @apply text-base; }
+.chat-markdown h1 { @apply text-base pb-2; border-bottom: 1px solid var(--color-neutral-800); }
+.chat-markdown h2 { @apply text-sm; color: var(--color-neutral-100); }
 .chat-markdown h3 {
-  @apply text-sm font-bold pb-2;
-  color: var(--color-gold);
-  border-bottom: 1px solid var(--color-neutral-800);
+  @apply text-sm font-medium;
+  color: var(--color-neutral-200);
 }
-.chat-markdown h4 { @apply text-sm; color: var(--color-neutral-300); }
+.chat-markdown h4 { @apply text-xs font-medium; color: var(--color-neutral-400); }
 
 .chat-markdown strong {
   @apply font-semibold;
-  color: var(--color-gold);
+  color: var(--color-white);
 }
 
 .chat-markdown em {

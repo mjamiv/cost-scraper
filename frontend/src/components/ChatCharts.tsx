@@ -84,6 +84,8 @@ interface ChartProps {
   data: CostDataRow[];
   title?: string;
   dateRange?: DateRange;
+  projects?: string[];
+  excludeCurrentMonth?: boolean;
 }
 
 /**
@@ -100,15 +102,26 @@ function filterByDateRange(data: CostDataRow[], dateRange?: DateRange): CostData
   });
 }
 
+function filterByProjects(data: CostDataRow[], projects?: string[]): CostDataRow[] {
+  if (!projects || projects.length === 0) return data;
+  const set = new Set(projects.map(p => String(p)));
+  return data.filter(row => set.has(String(row.PROJECT_NUMBER)));
+}
+
+function applyExclusions(data: CostDataRow[], excludeCurrent?: boolean): CostDataRow[] {
+  return excludeCurrent ? excludeCurrentMonth(data) : data;
+}
+
 /**
  * Spend Trend Chart - Bar + Line combo showing period spend and cumulative
  */
-export function SpendTrendChart({ data, title = 'Spend Trend', dateRange }: ChartProps) {
+export function SpendTrendChart({ data, title = 'Spend Trend', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    // Exclude current month, filter by date range, and filter to ROOT-level rows only
-    let filteredData = excludeCurrentMonth(data);
+    // Filter by date range, projects, and filter to ROOT-level rows only
+    let filteredData = applyExclusions(data, exclude);
+    filteredData = filterByProjects(filteredData, projects);
     filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
@@ -202,12 +215,13 @@ export function SpendTrendChart({ data, title = 'Spend Trend', dateRange }: Char
 /**
  * Earned Value Chart - Shows Budget, Actual Spend, and Earned Value over time
  */
-export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRange }: ChartProps) {
+export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    // Exclude current month, filter by date range, and filter to ROOT-level rows only
-    let filteredData = excludeCurrentMonth(data);
+    // Filter by date range, projects, and filter to ROOT-level rows only
+    let filteredData = applyExclusions(data, exclude);
+    filteredData = filterByProjects(filteredData, projects);
     filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
@@ -297,14 +311,14 @@ export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRa
 /**
  * Project Comparison Chart - Horizontal bar chart comparing projects
  */
-export function ProjectComparisonChart({ data, title = 'Project Comparison' }: ChartProps) {
+export function ProjectComparisonChart({ data, title = 'Project Comparison', projects, excludeCurrentMonth: exclude }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     const projectMap = new Map<string, { budget: number; jtdSpend: number; forecast: number }>();
 
-    // Exclude current month and filter to ROOT-level rows only
-    const filteredData = excludeCurrentMonth(data);
+    // Filter by projects and root rows only
+    const filteredData = applyExclusions(filterByProjects(data, projects), exclude);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
@@ -374,14 +388,14 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison' }: C
 /**
  * Budget vs Forecast Pie Chart
  */
-export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps) {
+export function BudgetPieChart({ data, title = 'Budget Allocation', projects, excludeCurrentMonth: exclude }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     const projectMap = new Map<string, number>();
 
-    // Exclude current month and filter to ROOT-level rows only
-    const filteredData = excludeCurrentMonth(data);
+    // Filter by projects and root rows only
+    const filteredData = applyExclusions(filterByProjects(data, projects), exclude);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
@@ -453,11 +467,12 @@ export function BudgetPieChart({ data, title = 'Budget Allocation' }: ChartProps
 /**
  * Variance Chart - Shows favorable/unfavorable variances
  */
-export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
+export function VarianceChart({ data, title = 'Top Variances', projects, dateRange, excludeCurrentMonth: exclude }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    return data
+    const scoped = filterByDateRange(applyExclusions(filterByProjects(data, projects), exclude), dateRange);
+    return scoped
       .map(row => ({
         name: `${row.PROJECT_NUMBER}-${(row.CBS_HIERARCHY || '').split('.').slice(0, 2).join('.')}`,
         variance: parseFloat(String(row.SL_VARIANCE)) || 0,
@@ -536,30 +551,299 @@ export function VarianceChart({ data, title = 'Top Variances' }: ChartProps) {
   );
 }
 
-export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value';
+export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value' | 'manhours-trend' | 'fte-trend' | 'discipline-breakdown';
+
+/**
+ * Manhours Trend Chart - Bar + Line combo showing period manhours and cumulative
+ */
+export function ManhoursTrendChart({ data, title = 'Manhours Trend', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
+  const chartData = useMemo(() => {
+    if (!data.length) return [];
+
+    let filteredData = applyExclusions(data, exclude);
+    filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByDateRange(filteredData, dateRange);
+    const topLevelRows = filteredData.filter((row) => {
+      const cbs = row.CBS_HIERARCHY;
+      return !cbs || cbs.trim() === '' || cbs === '-';
+    });
+
+    const periodData = new Map<string, number>();
+
+    for (const row of topLevelRows) {
+      const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+      const mh = parseFloat(String(row.PER_MH || 0)) || 0;
+      periodData.set(period, (periodData.get(period) || 0) + mh);
+    }
+
+    const sortedPeriods = Array.from(periodData.keys()).sort();
+    let cumulative = 0;
+
+    return sortedPeriods.map((period) => {
+      const mh = periodData.get(period)!;
+      cumulative += mh;
+      return { period: formatPeriodLabel(period), manhours: mh, cumulative };
+    });
+  }, [data, dateRange]);
+
+  if (!chartData.length) return null;
+
+  return (
+    <div className="chat-chart">
+      <div className="chat-chart-header">{title}</div>
+      <div className="chat-chart-body">
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={chartData} margin={{ top: 15, right: 45, left: 5, bottom: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <XAxis
+              dataKey="period"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: '#404040' }}
+              angle={-45}
+              textAnchor="end"
+              interval={Math.max(0, Math.floor(chartData.length / 10))}
+              dy={5}
+            />
+            <YAxis
+              yAxisId="left"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
+              width={50}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `${(v / 1000).toFixed(0)}K`}
+              width={55}
+            />
+            <Tooltip content={<DarkTooltip />} />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+            />
+            <Bar yAxisId="left" dataKey="manhours" name="Period MH" fill={COLORS.blue} radius={[3, 3, 0, 0]} />
+            <Line yAxisId="right" type="monotone" dataKey="cumulative" name="Cumulative" stroke={COLORS.purple} strokeWidth={2.5} dot={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * FTE Trend Chart - Bar for FTE count with avg rate overlay
+ */
+export function FTETrendChart({ data, title = 'FTE Trend', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
+  const chartData = useMemo(() => {
+    if (!data.length) return [];
+
+    let filteredData = applyExclusions(data, exclude);
+    filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByDateRange(filteredData, dateRange);
+    const topLevelRows = filteredData.filter((row) => {
+      const cbs = row.CBS_HIERARCHY;
+      return !cbs || cbs.trim() === '' || cbs === '-';
+    });
+
+    const periodData = new Map<string, { mh: number; spend: number }>();
+
+    for (const row of topLevelRows) {
+      const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+      const mh = parseFloat(String(row.PER_MH || 0)) || 0;
+      const spend = parseFloat(String(row.PER_SPEND || 0)) || 0;
+      const existing = periodData.get(period) || { mh: 0, spend: 0 };
+      existing.mh += mh;
+      existing.spend += spend;
+      periodData.set(period, existing);
+    }
+
+    const sortedPeriods = Array.from(periodData.keys()).sort();
+
+    // 4-4-5 calendar: months 3, 6, 9, 12 have 5 weeks
+    const getWeeksInMonth = (period: string): number => {
+      const month = parseInt(period.substring(4, 6), 10);
+      return (month % 3 === 0) ? 5 : 4;
+    };
+
+    return sortedPeriods.map((period) => {
+      const d = periodData.get(period)!;
+      const weeks = getWeeksInMonth(period);
+      const hoursInMonth = 40 * weeks;
+      const fte = d.mh > 0 ? d.mh / hoursInMonth : 0;
+      const avgRate = d.mh > 0 ? d.spend / d.mh : 0;
+      return { period: formatPeriodLabel(period), fte, avgRate, manhours: d.mh };
+    });
+  }, [data, dateRange]);
+
+  if (!chartData.length) return null;
+
+  const avgFTE = chartData.reduce((sum, d) => sum + d.fte, 0) / chartData.length;
+  const avgRate = chartData.filter(d => d.avgRate > 0).reduce((sum, d, _, arr) => sum + d.avgRate / arr.length, 0);
+
+  return (
+    <div className="chat-chart">
+      <div className="chat-chart-header">{title}</div>
+      <div className="chat-chart-body">
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={chartData} margin={{ top: 15, right: 45, left: 5, bottom: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <XAxis
+              dataKey="period"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: '#404040' }}
+              angle={-45}
+              textAnchor="end"
+              interval={Math.max(0, Math.floor(chartData.length / 10))}
+              dy={5}
+            />
+            <YAxis
+              yAxisId="left"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              width={40}
+            />
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => `$${v.toFixed(0)}`}
+              width={55}
+            />
+            <Tooltip content={<DarkTooltip />} />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+            />
+            <Bar yAxisId="left" dataKey="fte" name="Monthly FTE" fill={COLORS.gold} radius={[3, 3, 0, 0]} />
+            <Line yAxisId="right" type="monotone" dataKey="avgRate" name="Avg Rate ($/hr)" stroke={COLORS.emerald} strokeWidth={2} dot={false} />
+          </ComposedChart>
+        </ResponsiveContainer>
+        <div className="flex justify-center gap-6 text-xs mt-2 pb-2">
+          <span className="text-neutral-400">Avg FTE: <span className="text-gold font-semibold">{avgFTE.toFixed(1)}</span></span>
+          <span className="text-neutral-400">Avg Rate: <span className="text-emerald-400 font-semibold">${avgRate.toFixed(2)}/hr</span></span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Discipline Breakdown Chart - Horizontal bar chart by D_GROUP
+ */
+export function DisciplineBreakdownChart({ data, title = 'By Discipline', projects, excludeCurrentMonth: exclude }: ChartProps) {
+  const chartData = useMemo(() => {
+    if (!data.length) return [];
+
+    const filteredData = applyExclusions(filterByProjects(data, projects), exclude);
+    const disciplineMap = new Map<string, { jtdSpend: number; periodSpend: number }>();
+
+    for (const row of filteredData) {
+      // Try to get D_GROUP from the row (it's added by wbsDataMerger)
+      const discipline = (row as unknown as { D_GROUP?: string }).D_GROUP || '(No Discipline)';
+      const existing = disciplineMap.get(discipline) || { jtdSpend: 0, periodSpend: 0 };
+      existing.jtdSpend += parseFloat(String(row.JTD_SPEND || 0)) || 0;
+      existing.periodSpend += parseFloat(String(row.PER_SPEND || 0)) || 0;
+      disciplineMap.set(discipline, existing);
+    }
+
+    return Array.from(disciplineMap.entries())
+      .filter(([name]) => name !== '(No Discipline)' || disciplineMap.size === 1)
+      .map(([name, values]) => ({
+        name,
+        jtdSpend: values.jtdSpend,
+        periodSpend: values.periodSpend,
+      }))
+      .sort((a, b) => b.jtdSpend - a.jtdSpend)
+      .slice(0, 10);
+  }, [data]);
+
+  if (!chartData.length) return null;
+
+  return (
+    <div className="chat-chart">
+      <div className="chat-chart-header">{title}</div>
+      <div className="chat-chart-body">
+        <ResponsiveContainer width="100%" height={Math.max(220, chartData.length * 40)}>
+          <BarChart data={chartData} layout="vertical" margin={{ top: 15, right: 40, left: 100, bottom: 15 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" horizontal={false} />
+            <XAxis
+              type="number"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: '#404040' }}
+              tickFormatter={formatCurrency}
+            />
+            <YAxis
+              type="category"
+              dataKey="name"
+              tick={{ fill: '#d4d4d4', fontSize: 11, fontWeight: 500 }}
+              tickLine={false}
+              axisLine={false}
+              width={95}
+            />
+            <Tooltip content={<DarkTooltip />} />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+            />
+            <Bar dataKey="jtdSpend" name="JTD Spend" fill={COLORS.gold} radius={[0, 3, 3, 0]} />
+            <Bar dataKey="periodSpend" name="Period Spend" fill={COLORS.blue} radius={[0, 3, 3, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
 
 interface InlineChatChartProps {
   type: ChartType;
   data: CostDataRow[];
   title?: string;
   dateRange?: DateRange;
+  projects?: string[];
+  excludeCurrentMonth?: boolean;
 }
 
 /**
  * Main component to render inline charts in chat based on type
  */
-export function InlineChatChart({ type, data, title, dateRange }: InlineChatChartProps) {
+export function InlineChatChart({ type, data, title, dateRange, projects, excludeCurrentMonth: exclude }: InlineChatChartProps) {
   switch (type) {
     case 'spend-trend':
-      return <SpendTrendChart data={data} title={title} dateRange={dateRange} />;
+      return <SpendTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
     case 'project-comparison':
-      return <ProjectComparisonChart data={data} title={title} />;
+      return <ProjectComparisonChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} />;
     case 'budget-pie':
-      return <BudgetPieChart data={data} title={title} />;
+      return <BudgetPieChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} />;
     case 'variance':
-      return <VarianceChart data={data} title={title} />;
+      return <VarianceChart data={data} title={title} projects={projects} dateRange={dateRange} excludeCurrentMonth={exclude} />;
     case 'earned-value':
-      return <EarnedValueChart data={data} title={title} dateRange={dateRange} />;
+      return <EarnedValueChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+    case 'manhours-trend':
+      return <ManhoursTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+    case 'fte-trend':
+      return <FTETrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+    case 'discipline-breakdown':
+      return <DisciplineBreakdownChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} />;
     default:
       return null;
   }
@@ -616,30 +900,117 @@ export function parseDateRange(message: string): DateRange | undefined {
 }
 
 /**
+ * Chart request intent with filters extracted from message
+ */
+export interface ChartIntent {
+  type: ChartType;
+  filters?: {
+    tags?: Record<string, string[]>;
+    exclude?: string[];
+    projects?: string[];
+  };
+  dateRange?: DateRange;
+}
+
+/**
  * Detect if a message requests a chart and return the chart type
  */
 export function detectChartRequest(message: string): ChartType | null {
   const lower = message.toLowerCase();
 
-  // Check for earned value first (more specific)
+  // Check for explicit /chart command
+  if (lower.startsWith('/chart')) {
+    const args = lower.replace('/chart', '').trim();
+    if (args.includes('manhour') || args.includes('mh trend') || args.includes('labor hour')) return 'manhours-trend';
+    if (args.includes('fte') || args.includes('headcount') || args.includes('staffing')) return 'fte-trend';
+    if (args.includes('discipline') || args.includes('by discipline')) return 'discipline-breakdown';
+    if (args.includes('earned') || args.includes('ev') || args.includes('cpi')) return 'earned-value';
+    if (args.includes('project') || args.includes('compare')) return 'project-comparison';
+    if (args.includes('pie') || args.includes('budget') || args.includes('allocation')) return 'budget-pie';
+    if (args.includes('variance') || args.includes('over') || args.includes('under')) return 'variance';
+    return 'spend-trend'; // Default for /chart spend or /chart trend
+  }
+
+  // Check for manhours/FTE charts (specific patterns first)
+  if (lower.includes('manhour') && (lower.includes('trend') || lower.includes('over time') || lower.includes('chart') || lower.includes('graph') || lower.includes('plot'))) {
+    return 'manhours-trend';
+  }
+  if ((lower.includes('fte') || lower.includes('headcount') || lower.includes('staffing')) && (lower.includes('trend') || lower.includes('over time') || lower.includes('chart') || lower.includes('count'))) {
+    return 'fte-trend';
+  }
+  if ((lower.includes('discipline') || lower.includes('by discipline') || lower.includes('per discipline')) && (lower.includes('chart') || lower.includes('breakdown') || lower.includes('show') || lower.includes('graph'))) {
+    return 'discipline-breakdown';
+  }
+
+  // Check for earned value (more specific)
   if (lower.includes('earned value') || lower.includes('ev chart') || lower.includes('evm') || lower.includes('cpi') || lower.includes('spi')) {
     return 'earned-value';
   }
-  if (lower.includes('spend trend') || lower.includes('spending trend') || lower.includes('show me the trend') || lower.includes('monthly spend')) {
+  if (lower.includes('spend trend') || lower.includes('spending trend') || lower.includes('show me the trend') || lower.includes('monthly spend') || lower.includes('spend over time')) {
     return 'spend-trend';
   }
-  if (lower.includes('project comparison') || lower.includes('compare project') || lower.includes('project breakdown')) {
+  if (lower.includes('project comparison') || lower.includes('compare project') || lower.includes('project breakdown') || lower.includes('compare firms') || lower.includes('firm comparison')) {
     return 'project-comparison';
   }
   if (lower.includes('budget allocation') || lower.includes('pie chart') || lower.includes('budget distribution')) {
     return 'budget-pie';
   }
-  if (lower.includes('variance') || lower.includes('over budget') || lower.includes('under budget')) {
+  if (lower.includes('variance') || lower.includes('over budget') || lower.includes('under budget') || lower.includes('unfavorable') || lower.includes('favorable')) {
     return 'variance';
   }
-  if (lower.includes('chart') || lower.includes('graph') || lower.includes('visualize') || lower.includes('show me')) {
+  if (lower.includes('chart') || lower.includes('graph') || lower.includes('visualize') || lower.includes('plot')) {
+    // More intelligent default based on context
+    if (lower.includes('manhour') || lower.includes('mh')) return 'manhours-trend';
+    if (lower.includes('fte') || lower.includes('headcount')) return 'fte-trend';
+    if (lower.includes('discipline')) return 'discipline-breakdown';
+    if (lower.includes('compare') || lower.includes('vs')) return 'project-comparison';
+    if (lower.includes('progress') || lower.includes('complete')) return 'earned-value';
     return 'spend-trend'; // Default chart
   }
 
+  // Check for show me patterns
+  if (lower.includes('show me') || lower.includes('show the')) {
+    if (lower.includes('manhour')) return 'manhours-trend';
+    if (lower.includes('fte') || lower.includes('headcount')) return 'fte-trend';
+    if (lower.includes('discipline')) return 'discipline-breakdown';
+    if (lower.includes('spend') || lower.includes('cost') || lower.includes('trend')) return 'spend-trend';
+    if (lower.includes('variance') || lower.includes('problem')) return 'variance';
+    if (lower.includes('progress') || lower.includes('ev')) return 'earned-value';
+  }
+
   return null;
+}
+
+/**
+ * Parse chart request for filters (discipline, firm, tags, exclusions)
+ */
+export function parseChartFilters(message: string): ChartIntent['filters'] | undefined {
+  const lower = message.toLowerCase();
+  const filters: ChartIntent['filters'] = {};
+
+  // Parse exclusions (e.g., "excluding KIE", "except firm ABC")
+  const excludeMatch = lower.match(/(?:exclud|except|without|not including)\s+(?:firm\s+)?(\w+)/i);
+  if (excludeMatch) {
+    filters.exclude = [excludeMatch[1].toUpperCase()];
+  }
+
+  // Parse discipline/D-Group filters
+  const disciplineMatch = lower.match(/(?:for|filter by|only)\s+(?:discipline\s+)?(\w+)\s+(?:discipline)?/i);
+  if (disciplineMatch) {
+    filters.tags = { ...filters.tags, D_GROUP: [disciplineMatch[1]] };
+  }
+
+  // Parse firm filters
+  const firmMatch = lower.match(/(?:for|filter by|only)\s+firm\s+(\w+)/i);
+  if (firmMatch) {
+    filters.tags = { ...filters.tags, USER_DEFINED_7: [firmMatch[1].toUpperCase()] };
+  }
+
+  // Parse project filters
+  const projectMatch = lower.match(/project\s+(\d{6})/gi);
+  if (projectMatch) {
+    filters.projects = projectMatch.map(p => p.replace(/project\s+/i, ''));
+  }
+
+  return Object.keys(filters).length > 0 ? filters : undefined;
 }
