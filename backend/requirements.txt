@@ -7,4 +7,20 @@ pydantic-settings>=2.1.0
 cryptography>=41.0.0
 openai>=1.0.0
 python-multipart>=0.0.6
-Y
+httpx>=0.26.0
+
+# Phase 1: Authentication & Security
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+slowapi>=0.1.9
+
+# Phase 2: Testing & Observability
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+pytest-cov>=4.1.0
+httpx>=0.26.0
+prometheus-client>=0.19.0
+python-json-logger>=2.0.7
+
+# Phase 3: Caching
+cachetools>=5.3.0

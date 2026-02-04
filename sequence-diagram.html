@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cost Scraper Flow - Sequence Diagram</title>
+    <style>
+      :root {
+        color-scheme: light;
+      }
+      body {
+        margin: 0;
+        padding: 24px;
+        font-family: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+        background: #f7f7f8;
+        color: #111;
+      }
+      .panel {
+        max-width: 1200px;
+        margin: 0 auto;
+        background: #fff;
+        border: 1px solid #e5e7eb;
+        border-radius: 12px;
+        padding: 20px 24px;
+        box-shadow: 0 6px 24px rgba(0, 0, 0, 0.06);
+      }
+      h1 {
+        font-size: 20px;
+        margin: 0 0 12px 0;
+      }
+      .hint {
+        font-size: 13px;
+        color: #6b7280;
+        margin-bottom: 16px;
+      }
+      #diagram {
+        overflow-x: auto;
+      }
+    </style>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  </head>
+  <body>
+    <div class="panel">
+      <h1>Cost Scraper Request/Response Flow</h1>
+      <div class="hint">Rendered with Mermaid. Open this file in a browser.</div>
+      <div id="diagram" class="mermaid">
+sequenceDiagram
+    autonumber
+    participant U as User
+    participant UI as React UI
+    participant API as FastAPI Backend
+    participant SF as Snowflake
+    participant OAI as OpenAI
+
+    rect rgba(230, 245, 255, 0.6)
+    note over U,UI: Cost Data Search (table + charts)
+    U->>UI: Click Search
+    UI->>API: GET /api/cost-data?project_numbers=...&start_month=...&district_id=...
+    API->>SF: build_cr_cube_query + execute_query
+    SF-->>API: cost rows
+    API-->>UI: { data, total_count, filters_applied }
+
+    UI->>API: GET /api/wbs-data?project_numbers=...&limit=...
+    API->>SF: build_wbs_query + execute_query
+    SF-->>API: WBS rows
+    API-->>UI: { rows, row_count, columns, ... }
+
+    UI->>UI: merge cost + WBS, filter, render table + charts
+    end
+
+    rect rgba(240, 255, 240, 0.6)
+    note over U,UI: Chat (non-streaming)
+    U->>UI: Ask question
+    UI->>API: POST /api/chat { message, history, filter_hints }
+    API->>API: resolve_scope + validate
+    API->>SF: build_cr_cube_query + execute_query
+    SF-->>API: cost rows
+    API->>SF: build_wbs_query + execute_query
+    SF-->>API: WBS rows
+    API->>API: merge + build_data_context
+    API->>OAI: chat.completions.create(...)
+    OAI-->>API: JSON answer
+    API-->>UI: { answer, confidence, chart_request, ... }
+    UI->>UI: render answer, open chart if requested
+    end
+
+    rect rgba(255, 245, 230, 0.6)
+    note over U,UI: Chat (streaming)
+    U->>UI: Ask question (stream)
+    UI->>API: POST /api/chat/stream { message, history, filter_hints }
+    API->>API: calls /api/chat internally
+    API-->>UI: SSE chunks "data: token"
+    UI->>UI: append tokens live
+    end
+
+    rect rgba(245, 230, 255, 0.6)
+    note over U,UI: Voice
+    U->>UI: Speak question
+    UI->>API: POST /api/voice/transcribe (audio)
+    API->>OAI: Whisper transcription
+    OAI-->>API: text
+    API-->>UI: { text }
+    UI->>API: POST /api/voice/synthesize { text, voice }
+    API->>OAI: TTS
+    OAI-->>API: audio blob
+    API-->>UI: audio
+    UI->>UI: play audio
+    end
+      </div>
+    </div>
+    <script>
+      mermaid.initialize({ startOnLoad: true });
+    </script>
+  </body>
+</html>

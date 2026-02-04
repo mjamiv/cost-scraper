@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     default_limit: int = 5000
     max_projects: int = 50
     
+    # Authentication settings
+    auth_enabled: bool = True
+    jwt_secret_key: str = "dev-secret-key-change-in-production"
+    jwt_expire_minutes: int = 60
+    api_key: str = ""
+    
+    # Rate limiting
+    rate_limit_requests: int = 100
+    rate_limit_period: int = 60  # seconds
+    
+    # Connection pooling
+    sf_pool_size: int = 5
+    sf_pool_timeout: int = 30  # seconds
+    
     class Config:
         env_file = ".env"
         case_sensitive = False

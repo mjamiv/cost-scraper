@@ -1300,3 +1300,127 @@ body {
     @apply px-2 py-1.5;
   }
 }
+
+/* ============================================================================
+   Accessibility Styles
+   ============================================================================ */
+
+/* Skip link - visible only on focus */
+.skip-link {
+  @apply fixed top-0 left-0 z-50;
+  @apply bg-gold text-black font-medium px-4 py-2;
+  @apply transform -translate-y-full;
+  @apply transition-transform duration-200;
+}
+
+.skip-link:focus {
+  @apply translate-y-0 outline-none ring-2 ring-white;
+}
+
+/* Screen reader only content */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Focus visible styles for keyboard navigation */
+.focus-visible-ring:focus-visible {
+  @apply outline-none ring-2 ring-gold ring-offset-2 ring-offset-neutral-900;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .glass-card {
+    border-width: 2px;
+  }
+  
+  .header-menu-btn {
+    border: 1px solid currentColor;
+  }
+}
+
+/* ============================================================================
+   Error Boundary Styles
+   ============================================================================ */
+
+.error-boundary-fallback {
+  @apply min-h-screen flex items-center justify-center p-8;
+  background: var(--color-neutral-950);
+}
+
+.error-boundary-content {
+  @apply max-w-md w-full text-center;
+}
+
+.error-boundary-icon {
+  @apply flex justify-center mb-6;
+}
+
+.error-boundary-title {
+  @apply text-2xl font-bold text-white mb-3;
+}
+
+.error-boundary-message {
+  @apply text-neutral-400 mb-6;
+}
+
+.error-boundary-details {
+  @apply bg-neutral-900 border border-neutral-800 rounded-lg p-4 mb-6;
+  @apply text-sm text-red-400 font-mono text-left;
+  @apply overflow-x-auto;
+}
+
+.error-boundary-actions {
+  @apply flex flex-wrap justify-center gap-3;
+}
+
+.error-boundary-btn {
+  @apply inline-flex items-center px-4 py-2 rounded-lg font-medium text-sm;
+  @apply transition-all duration-200;
+}
+
+.error-boundary-btn-primary {
+  @apply bg-gold text-black;
+  @apply hover:bg-gold/90;
+}
+
+.error-boundary-btn-secondary {
+  @apply bg-neutral-800 text-white;
+  @apply hover:bg-neutral-700;
+}
+
+.error-boundary-btn-outline {
+  @apply border border-neutral-700 text-neutral-300;
+  @apply hover:bg-neutral-800;
+}
+
+.error-boundary-ref {
+  @apply mt-6 text-xs text-neutral-500;
+}
+
+.error-boundary-ref code {
+  @apply text-neutral-400 font-mono;
+}
+
+/* Inline Error Fallback */
+.inline-error-fallback {
+  @apply p-4 bg-neutral-900/50 border border-red-900/50 rounded-lg;
+}

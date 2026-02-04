@@ -3,12 +3,18 @@ Cost Scraper API - FastAPI backend for Snowflake data access.
 
 Endpoints:
 - GET /health - Basic health check
+- POST /api/auth/login - Authenticate and get JWT token
 - GET /api/test-connection - Detailed Snowflake connection test
 - POST /api/query - Execute CR Cube query with filters
 - GET /api/projects - List available projects
 - POST /api/chat - Chat with AI about cost data
 - POST /api/voice/transcribe - Transcribe audio to text
 - POST /api/voice/synthesize - Convert text to speech
+
+Security:
+- JWT authentication for protected endpoints
+- API key authentication for service-to-service
+- Rate limiting to prevent abuse
 """
 
 import logging
@@ -18,34 +24,113 @@ import io
 import base64
 import json
 import warnings
-from typing import Optional, Any
+import sys
+from datetime import timedelta
+from typing import Optional, Any, Annotated
 
 # Suppress SSL warnings for corporate proxy environments
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 
-from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Query, UploadFile, File, Form, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, Response
+from fastapi.responses import StreamingResponse, Response, JSONResponse
+from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, Field, field_validator
 from openai import OpenAI
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+from pythonjsonlogger import jsonlogger
 
 from app.config import get_settings, get_allowed_origins
-from app.snowflake_client import test_connection, execute_query, close_all_connections
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S"
+from app.snowflake_client import test_connection, execute_query, close_all_connections, get_pool_stats
+from app.auth import (
+    Token, User, authenticate_user, create_access_token,
+    get_current_user, get_current_active_user, require_scope,
+    get_optional_user, ACCESS_TOKEN_EXPIRE_MINUTES
 )
-logger = logging.getLogger(__name__)
+from app.metrics import (
+    PrometheusMiddleware, get_metrics, init_app_info,
+    record_auth_attempt, record_connection_pool_stats
+)
+from app.cache import (
+    get_cache_stats, clear_all_caches, execute_query_cached,
+    get_cached_filters, set_cached_filters, get_cached_lookup, set_cached_lookup
+)
 
-# Create FastAPI app
+# ============================================================================
+# Structured Logging Setup
+# ============================================================================
+
+class CustomJsonFormatter(jsonlogger.JsonFormatter):
+    """Custom JSON formatter with additional fields."""
+    
+    def add_fields(self, log_record, record, message_dict):
+        super().add_fields(log_record, record, message_dict)
+        log_record['timestamp'] = time.strftime('%Y-%m-%dT%H:%M:%S', time.localtime(record.created))
+        log_record['level'] = record.levelname
+        log_record['logger'] = record.name
+        log_record['service'] = 'cost-scraper-api'
+
+
+def setup_logging():
+    """Configure structured JSON logging for production."""
+    settings = get_settings()
+    
+    # Get the root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    
+    # Clear existing handlers
+    root_logger.handlers = []
+    
+    # Create console handler with JSON formatting for production
+    console_handler = logging.StreamHandler(sys.stdout)
+    
+    # Use JSON format in production, readable format in development
+    if settings.auth_enabled:
+        formatter = CustomJsonFormatter(
+            '%(timestamp)s %(level)s %(logger)s %(message)s'
+        )
+    else:
+        formatter = logging.Formatter(
+            "%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"
+        )
+    
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
+    
+    return logging.getLogger(__name__)
+
+
+logger = setup_logging()
+
+# ============================================================================
+# Rate Limiting Setup
+# ============================================================================
+
+settings = get_settings()
+limiter = Limiter(key_func=get_remote_address)
+
+# ============================================================================
+# FastAPI App
+# ============================================================================
+
 app = FastAPI(
     title="Cost Scraper API",
-    description="API for querying Snowflake CR Cube data",
-    version="1.0.0"
+    description="Enterprise API for querying Snowflake CR Cube data with AI-powered analysis",
+    version="2.0.0",
+    docs_url="/docs" if not settings.auth_enabled else "/docs",
+    redoc_url="/redoc"
 )
+
+# Add rate limiter to app state
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# Add Prometheus metrics middleware
+app.add_middleware(PrometheusMiddleware)
 
 # CORS middleware
 app.add_middleware(
@@ -55,6 +140,68 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Initialize app info metrics
+init_app_info("2.0.0")
+
+
+# ============================================================================
+# Request Logging Middleware
+# ============================================================================
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """Log all requests with timing information."""
+    start_time = time.time()
+    
+    # Generate request ID
+    request_id = f"{int(time.time() * 1000)}-{id(request)}"
+    
+    # Log request
+    logger.info(
+        "Request started",
+        extra={
+            "request_id": request_id,
+            "method": request.method,
+            "path": request.url.path,
+            "client_ip": get_remote_address(request)
+        }
+    )
+    
+    try:
+        response = await call_next(request)
+        
+        # Log response
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.info(
+            "Request completed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status_code": response.status_code,
+                "elapsed_ms": round(elapsed_ms, 2)
+            }
+        )
+        
+        # Add request ID to response headers
+        response.headers["X-Request-ID"] = request_id
+        
+        return response
+        
+    except Exception as e:
+        elapsed_ms = (time.time() - start_time) * 1000
+        logger.error(
+            "Request failed",
+            extra={
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "error": str(e),
+                "elapsed_ms": round(elapsed_ms, 2)
+            }
+        )
+        raise
 
 
 # Shutdown event handler - close all pooled Snowflake connections
@@ -247,14 +394,98 @@ class CustomVoiceDeleteResponse(BaseModel):
 
 
 # ============================================================================
-# Endpoints
+# Authentication Endpoints
 # ============================================================================
 
-@app.get("/health", response_model=HealthResponse)
+class LoginRequest(BaseModel):
+    """Request model for login endpoint."""
+    username: str
+    password: str
+
+
+@app.post("/api/auth/login", response_model=Token, tags=["Authentication"])
+@limiter.limit("10/minute")
+async def login(request: Request, login_data: LoginRequest):
+    """
+    Authenticate user and return JWT token.
+    
+    Demo credentials:
+    - username: admin, password: demo123 (full access)
+    - username: analyst, password: demo123 (read-only)
+    """
+    user = authenticate_user(login_data.username, login_data.password)
+    if not user:
+        logger.warning(f"Failed login attempt for user: {login_data.username}")
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "scopes": user.scopes},
+        expires_delta=access_token_expires
+    )
+    
+    logger.info(f"User logged in: {user.username}")
+    
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
+
+
+@app.post("/api/auth/token", response_model=Token, tags=["Authentication"])
+@limiter.limit("10/minute")
+async def login_for_access_token(
+    request: Request,
+    form_data: Annotated[OAuth2PasswordRequestForm, Depends()]
+):
+    """
+    OAuth2 compatible token endpoint.
+    
+    Use this with OAuth2 clients or the Swagger UI "Authorize" button.
+    """
+    user = authenticate_user(form_data.username, form_data.password)
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Incorrect username or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    
+    access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username, "scopes": user.scopes},
+        expires_delta=access_token_expires
+    )
+    
+    return Token(
+        access_token=access_token,
+        token_type="bearer",
+        expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60
+    )
+
+
+@app.get("/api/auth/me", response_model=User, tags=["Authentication"])
+async def get_current_user_info(
+    current_user: Annotated[User, Depends(get_current_active_user)]
+):
+    """Get information about the currently authenticated user."""
+    return current_user
+
+
+# ============================================================================
+# Health & Status Endpoints
+# ============================================================================
+
+@app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """
     Basic health check - confirms the API is running.
-    Does NOT test Snowflake connection.
+    Does NOT test Snowflake connection (use /api/test-connection for that).
     """
     return HealthResponse(
         status="ok",
@@ -262,13 +493,111 @@ async def health_check():
     )
 
 
-@app.get("/api/test-connection", response_model=ConnectionResponse)
-async def api_test_connection():
+@app.get("/api/health/ready", tags=["Health"])
+async def readiness_check():
+    """
+    Readiness probe for Kubernetes/container orchestration.
+    Checks if the application is ready to serve traffic.
+    """
+    try:
+        # Check connection pool status
+        pool_stats = get_pool_stats()
+        
+        return {
+            "status": "ready",
+            "checks": {
+                "connection_pool": {
+                    "status": "ok" if not pool_stats.get("closed") else "error",
+                    "details": pool_stats
+                }
+            }
+        }
+    except Exception as e:
+        return JSONResponse(
+            status_code=503,
+            content={
+                "status": "not_ready",
+                "error": str(e)
+            }
+        )
+
+
+@app.get("/api/health/live", tags=["Health"])
+async def liveness_check():
+    """
+    Liveness probe for Kubernetes/container orchestration.
+    Simple check to confirm the process is alive.
+    """
+    return {"status": "alive"}
+
+
+@app.get("/metrics", tags=["Monitoring"])
+async def metrics_endpoint():
+    """
+    Prometheus metrics endpoint.
+    
+    Exposes application metrics in Prometheus format for scraping.
+    Metrics include:
+    - HTTP request counts and latencies
+    - Database query performance
+    - AI/LLM request metrics
+    - Authentication attempts
+    - Error counts
+    """
+    # Update connection pool stats
+    try:
+        stats = get_pool_stats()
+        record_connection_pool_stats(stats)
+    except Exception:
+        pass
+    
+    return get_metrics()
+
+
+@app.get("/api/cache/stats", tags=["Monitoring"])
+async def cache_stats(
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
+    """
+    Get cache statistics.
+    
+    Returns current cache sizes and configuration.
+    Requires authentication.
+    """
+    return get_cache_stats()
+
+
+@app.post("/api/cache/clear", tags=["Monitoring"])
+async def cache_clear(
+    current_user: Annotated[User, Depends(require_scope("admin"))] = None
+):
+    """
+    Clear all caches.
+    
+    Invalidates all cached query results, lookups, and filter options.
+    Requires admin scope.
+    """
+    counts = clear_all_caches()
+    return {
+        "success": True,
+        "message": "All caches cleared",
+        "cleared": counts
+    }
+
+
+@app.get("/api/test-connection", response_model=ConnectionResponse, tags=["Data"])
+@limiter.limit("5/minute")
+async def api_test_connection(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
     """
     Test Snowflake connection and return account details.
     Use this to verify key-pair authentication is working.
+    
+    Requires authentication.
     """
-    logger.info("Testing Snowflake connection...")
+    logger.info(f"Testing Snowflake connection (user: {current_user.username})...")
     
     try:
         result = test_connection()
@@ -284,41 +613,47 @@ async def api_test_connection():
         )
 
 
-@app.post("/api/query", response_model=QueryResponse)
-async def api_query(request: QueryRequest):
+@app.post("/api/query", response_model=QueryResponse, tags=["Data"])
+@limiter.limit("30/minute")
+async def api_query(
+    request: Request,
+    query_request: QueryRequest,
+    current_user: Annotated[User, Depends(get_current_user)]
+):
     """
     Execute CR Cube query with the provided filters.
     
     Returns project cost/budget/forecast data from Snowflake.
+    Requires authentication.
     """
     settings = get_settings()
     
     # Validate limits
-    if len(request.project_numbers) > settings.max_projects:
+    if len(query_request.project_numbers) > settings.max_projects:
         raise HTTPException(
             status_code=400, 
             detail=f"Maximum {settings.max_projects} projects allowed"
         )
     
-    if request.limit > settings.max_limit:
+    if query_request.limit > settings.max_limit:
         raise HTTPException(
             status_code=400,
             detail=f"Maximum limit is {settings.max_limit}"
         )
     
     logger.info(
-        f"Query request: projects={request.project_numbers}, "
-        f"start={request.start_month}, end={request.end_month}, "
-        f"limit={request.limit}"
+        f"Query request from {current_user.username}: projects={query_request.project_numbers}, "
+        f"start={query_request.start_month}, end={query_request.end_month}, "
+        f"limit={query_request.limit}"
     )
     
     try:
         # Build the query
         sql, params = build_cr_cube_query(
-            project_numbers=request.project_numbers,
-            start_month=request.start_month,
-            end_month=request.end_month,
-            limit=request.limit
+            project_numbers=query_request.project_numbers,
+            start_month=query_request.start_month,
+            end_month=query_request.end_month,
+            limit=query_request.limit
         )
         
         # Execute
@@ -339,15 +674,19 @@ async def api_query(request: QueryRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/projects")
+@app.get("/api/projects", tags=["Data"])
+@limiter.limit("60/minute")
 async def api_projects(
+    request: Request,
     active_only: bool = Query(True, description="Filter to projects with recent activity (last 12 months)"),
-    district_id: Optional[str] = Query(None, description="Filter by district ID")
+    district_id: Optional[str] = Query(None, description="Filter by district ID"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Get list of available projects (for dropdown population).
     Returns distinct project numbers from the data.
     Active projects are filtered by default to show only those with cost data in the last 12 months.
+    Requires authentication.
     """
     logger.info(f"Fetching project list... active_only={active_only}, district_id={district_id}")
 
@@ -401,17 +740,21 @@ async def api_projects(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/cost-data")
+@app.get("/api/cost-data", tags=["Data"])
+@limiter.limit("30/minute")
 async def api_cost_data(
+    request: Request,
     project_numbers: str = Query(..., description="Comma-separated project numbers"),
     start_month: str = Query(..., description="Start fiscal month YYYYMM"),
-    district_id: Optional[str] = Query(None, description="Optional district filter")
+    district_id: Optional[str] = Query(None, description="Optional district filter"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Get cost data for projects - matches frontend expected API.
     Returns data in format: { data: [...], total_count: N, filters_applied: {...} }
+    Requires authentication.
     """
-    logger.info(f"Cost data request: projects={project_numbers}, start={start_month}, district={district_id}")
+    logger.info(f"Cost data request from {current_user.username}: projects={project_numbers}, start={start_month}, district={district_id}")
 
     # Parse comma-separated projects into list
     projects = [p.strip() for p in project_numbers.split(",") if p.strip()]
@@ -454,10 +797,15 @@ async def api_cost_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/districts")
-async def api_districts():
+@app.get("/api/districts", tags=["Data"])
+@limiter.limit("60/minute")
+async def api_districts(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Get list of available districts for filtering.
+    Requires authentication.
     """
     logger.info("Fetching districts...")
 
@@ -476,10 +824,15 @@ async def api_districts():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/filters")
-async def api_filters():
+@app.get("/api/filters", tags=["Data"])
+@limiter.limit("60/minute")
+async def api_filters(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Get combined filter options (districts + fiscal months).
+    Requires authentication.
     """
     logger.info("Fetching filter options...")
 
@@ -512,16 +865,20 @@ async def api_filters():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/wbs-data")
+@app.get("/api/wbs-data", tags=["Data"])
+@limiter.limit("30/minute")
 async def api_wbs_data(
+    request: Request,
     project_numbers: str = Query(..., description="Comma-separated project numbers"),
-    limit: int = Query(default=1000, ge=1, le=10000, description="Maximum rows to return")
+    limit: int = Query(default=1000, ge=1, le=10000, description="Maximum rows to return"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Get WBS data for projects from the WBS view.
     Returns WBS structure with attributes.
+    Requires authentication.
     """
-    logger.info(f"WBS data request: projects={project_numbers}, limit={limit}")
+    logger.info(f"WBS data request from {current_user.username}: projects={project_numbers}, limit={limit}")
 
     # Parse comma-separated projects into list
     projects = [p.strip() for p in project_numbers.split(",") if p.strip()]
@@ -567,17 +924,21 @@ async def api_wbs_data(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/api/wbs-snapshot")
+@app.get("/api/wbs-snapshot", tags=["Data"])
+@limiter.limit("30/minute")
 async def api_wbs_snapshot(
+    request: Request,
     project_numbers: str = Query(..., description="Comma-separated project numbers"),
     fiscal_month: Optional[str] = Query(None, description="Optional fiscal month filter YYYYMM"),
-    limit: int = Query(default=1000, ge=1, le=10000, description="Maximum rows to return")
+    limit: int = Query(default=1000, ge=1, le=10000, description="Maximum rows to return"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Get WBS Snapshot data for projects from the WBS_SNAPSHOT_FLAT_WITH_ATTRIBUTES view.
     Returns flattened hierarchy with L01-L20 levels.
+    Requires authentication.
     """
-    logger.info(f"WBS snapshot request: projects={project_numbers}, fiscal_month={fiscal_month}, limit={limit}")
+    logger.info(f"WBS snapshot request from {current_user.username}: projects={project_numbers}, fiscal_month={fiscal_month}, limit={limit}")
 
     # Parse comma-separated projects into list
     projects = [p.strip() for p in project_numbers.split(",") if p.strip()]
@@ -1073,18 +1434,24 @@ Never include any text outside the JSON object.
 - FTE Cost: Cost = FTEs × hours_per_day × days_per_week × Average_Rate"""
 
 
-@app.post("/api/chat", response_model=ChatResponse)
-async def api_chat(request: ChatRequest):
+@app.post("/api/chat", response_model=ChatResponse, tags=["AI"])
+@limiter.limit("20/minute")
+async def api_chat(
+    request: Request,
+    chat_request: ChatRequest,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Chat with AI about the cost data using OpenAI GPT-4.
+    Requires authentication.
     """
-    logger.info(f"Chat request: {request.message[:100]}...")
+    logger.info(f"Chat request from {current_user.username}: {chat_request.message[:100]}...")
 
     try:
         client = get_openai_client()
 
         settings = get_settings()
-        scope = resolve_scope(request.message, request.filter_hints)
+        scope = resolve_scope(chat_request.message, chat_request.filter_hints)
         projects = scope["projects"]
         start_month = scope["start_month"]
         end_month = scope["end_month"]
@@ -1136,9 +1503,9 @@ async def api_chat(request: ChatRequest):
         wbs_result = execute_query(wbs_sql, wbs_params)
 
         merged_rows = merge_cost_with_wbs(cost_result["rows"], wbs_result["rows"])
-        query_type = classify_query_type(request.message)
+        query_type = classify_query_type(chat_request.message)
 
-        exclude_current = request.context_prefs.exclude_current_month if request.context_prefs else False
+        exclude_current = chat_request.context_prefs.exclude_current_month if chat_request.context_prefs else False
         data_context, coverage = build_data_context(
             merged_rows,
             query_type=query_type,
@@ -1146,10 +1513,10 @@ async def api_chat(request: ChatRequest):
             exclude_current_month=exclude_current
         )
 
-        messages = [{"role": "system", "content": get_system_prompt(data_context, request.filter_hints, request.message)}]
-        for msg in request.history[-10:]:
+        messages = [{"role": "system", "content": get_system_prompt(data_context, chat_request.filter_hints, chat_request.message)}]
+        for msg in chat_request.history[-10:]:
             messages.append({"role": msg.role, "content": msg.content})
-        messages.append({"role": "user", "content": request.message})
+        messages.append({"role": "user", "content": chat_request.message})
 
         response = client.chat.completions.create(
             model="gpt-4o",
@@ -1217,17 +1584,23 @@ async def api_chat(request: ChatRequest):
         )
 
 
-@app.post("/api/chat/stream")
-async def api_chat_stream(request: ChatRequest):
+@app.post("/api/chat/stream", tags=["AI"])
+@limiter.limit("20/minute")
+async def api_chat_stream(
+    request: Request,
+    chat_request: ChatRequest,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Stream chat responses from AI for better UX.
     Returns Server-Sent Events with incremental response.
+    Requires authentication.
     """
-    logger.info(f"Streaming chat request: {request.message[:100]}...")
+    logger.info(f"Streaming chat request from {current_user.username}: {chat_request.message[:100]}...")
 
     async def generate():
         try:
-            response = await api_chat(request)
+            response = await api_chat(request, chat_request, current_user)
             if not response.success:
                 yield f"data: [ERROR] {response.error or 'Chat error'}\n\n"
                 return
@@ -1252,13 +1625,19 @@ async def api_chat_stream(request: ChatRequest):
     )
 
 
-@app.post("/api/voice/transcribe")
-async def api_voice_transcribe(audio: UploadFile = File(...)):
+@app.post("/api/voice/transcribe", tags=["Voice"])
+@limiter.limit("30/minute")
+async def api_voice_transcribe(
+    request: Request,
+    audio: UploadFile = File(...),
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Transcribe audio to text using OpenAI Whisper.
     Accepts audio files (webm, mp3, wav, etc.)
+    Requires authentication.
     """
-    logger.info(f"Transcribe request: {audio.filename}, {audio.content_type}")
+    logger.info(f"Transcribe request from {current_user.username}: {audio.filename}, {audio.content_type}")
 
     try:
         client = get_openai_client()
@@ -1286,17 +1665,20 @@ async def api_voice_transcribe(audio: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/voice/synthesize")
+@app.post("/api/voice/synthesize", tags=["Voice"])
+@limiter.limit("30/minute")
 async def api_voice_synthesize(
+    request: Request,
     text: str = Form(...),
-    voice: str = Form(default="alloy")
+    voice: str = Form(default="alloy"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Convert text to speech using OpenAI TTS.
-
-    Available voices: alloy, echo, fable, onyx, nova, shimmer
+    Available voices: alloy, echo, fable, onyx, nova, shimmer.
+    Requires authentication.
     """
-    logger.info(f"Synthesize request: {len(text)} chars, voice={voice}")
+    logger.info(f"Synthesize request from {current_user.username}: {len(text)} chars, voice={voice}")
 
     try:
         client = get_openai_client()
@@ -1416,18 +1798,24 @@ def get_voice_tools() -> list[dict]:
     ]
 
 
-@app.post("/api/voice/realtime-token", response_model=RealtimeTokenResponse)
-async def api_voice_realtime_token(request: RealtimeTokenRequest):
+@app.post("/api/voice/realtime-token", response_model=RealtimeTokenResponse, tags=["Voice"])
+@limiter.limit("10/minute")
+async def api_voice_realtime_token(
+    request: Request,
+    token_request: RealtimeTokenRequest,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Generate an ephemeral token for OpenAI Realtime API.
 
     This endpoint creates a short-lived session token that the frontend
     uses to establish a WebRTC connection directly with OpenAI.
     The main API key is never exposed to the client.
+    Requires authentication.
     """
     import httpx
 
-    logger.info("Generating realtime session token...")
+    logger.info(f"Generating realtime session token for {current_user.username}...")
 
     settings = get_settings()
     if not settings.openai_api_key:
@@ -1437,12 +1825,12 @@ async def api_voice_realtime_token(request: RealtimeTokenRequest):
         )
 
     # Build session configuration
-    config = request.session_config or RealtimeSessionConfig()
+    config = token_request.session_config or RealtimeSessionConfig()
 
     session_payload = {
         "model": "gpt-4o-realtime-preview-2024-12-17",
         "voice": config.voice,
-        "instructions": get_voice_system_instructions(request.data_context),
+        "instructions": get_voice_system_instructions(token_request.data_context),
         "tools": get_voice_tools(),
         "tool_choice": "auto",
         "temperature": config.temperature,
@@ -1505,17 +1893,22 @@ async def api_voice_realtime_token(request: RealtimeTokenRequest):
 # Custom Voice Endpoints
 # ============================================================================
 
-@app.get("/api/voice/custom/eligibility", response_model=CustomVoiceEligibilityResponse)
-async def api_custom_voice_eligibility():
+@app.get("/api/voice/custom/eligibility", response_model=CustomVoiceEligibilityResponse, tags=["Voice"])
+@limiter.limit("10/minute")
+async def api_custom_voice_eligibility(
+    request: Request,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Check if the OpenAI account is eligible for custom voice creation.
 
     Custom voices require approval from OpenAI. This endpoint checks
     eligibility before allowing users to start the voice creation flow.
+    Requires authentication.
     """
     import httpx
 
-    logger.info("Checking custom voice eligibility...")
+    logger.info(f"Checking custom voice eligibility for {current_user.username}...")
 
     settings = get_settings()
     if not settings.openai_api_key:
@@ -1562,10 +1955,13 @@ async def api_custom_voice_eligibility():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/voice/custom/consent", response_model=CustomVoiceConsentResponse)
+@app.post("/api/voice/custom/consent", response_model=CustomVoiceConsentResponse, tags=["Voice"])
+@limiter.limit("5/minute")
 async def api_custom_voice_consent(
+    request: Request,
     audio: UploadFile = File(...),
-    language_tag: str = Form(default="en-US")
+    language_tag: str = Form(default="en-US"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Upload consent recording for custom voice creation.
@@ -1573,11 +1969,12 @@ async def api_custom_voice_consent(
     The user must read the exact consent phrase:
     "I agree to have my voice used to create a synthetic voice."
 
-    Audio formats: webm, wav, mp3, ogg (max 10MB)
+    Audio formats: webm, wav, mp3, ogg (max 10MB).
+    Requires authentication.
     """
     import httpx
 
-    logger.info(f"Processing consent recording: {audio.filename}, language={language_tag}, content_type={audio.content_type}")
+    logger.info(f"Processing consent recording from {current_user.username}: {audio.filename}, language={language_tag}, content_type={audio.content_type}")
 
     settings = get_settings()
     if not settings.openai_api_key:
@@ -1690,22 +2087,26 @@ async def api_custom_voice_consent(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/voice/custom/create", response_model=CustomVoiceCreateResponse)
+@app.post("/api/voice/custom/create", response_model=CustomVoiceCreateResponse, tags=["Voice"])
+@limiter.limit("5/minute")
 async def api_custom_voice_create(
+    request: Request,
     audio: UploadFile = File(...),
     consent_id: str = Form(...),
     name: str = Form(...),
-    language_tag: str = Form(default="en-US")
+    language_tag: str = Form(default="en-US"),
+    current_user: Annotated[User, Depends(get_current_user)] = None
 ):
     """
     Create a custom voice from a voice sample.
 
     Requires a valid consent_id from the consent endpoint.
     Audio should be 10-30 seconds of clear speech.
+    Requires authentication.
     """
     import httpx
 
-    logger.info(f"Creating custom voice: name={name}, consent_id={consent_id}")
+    logger.info(f"Creating custom voice for {current_user.username}: name={name}, consent_id={consent_id}")
 
     settings = get_settings()
     if not settings.openai_api_key:
@@ -1810,16 +2211,22 @@ async def api_custom_voice_create(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.delete("/api/voice/custom/{voice_id}", response_model=CustomVoiceDeleteResponse)
-async def api_custom_voice_delete(voice_id: str):
+@app.delete("/api/voice/custom/{voice_id}", response_model=CustomVoiceDeleteResponse, tags=["Voice"])
+@limiter.limit("10/minute")
+async def api_custom_voice_delete(
+    request: Request,
+    voice_id: str,
+    current_user: Annotated[User, Depends(get_current_user)] = None
+):
     """
     Delete a custom voice.
 
     This permanently removes the voice from OpenAI's servers.
+    Requires authentication.
     """
     import httpx
 
-    logger.info(f"Deleting custom voice: {voice_id}")
+    logger.info(f"Deleting custom voice for {current_user.username}: {voice_id}")
 
     settings = get_settings()
     if not settings.openai_api_key:

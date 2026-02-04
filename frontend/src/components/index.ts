@@ -4,4 +4,5 @@ export { DataTable } from './DataTable';
 export { Sidebar } from './Sidebar';
 export { RightPanel } from './RightPanel';
 export type { RightPanelTab } from './RightPanel';
+export { ErrorBoundary, withErrorBoundary, InlineErrorFallback } from './ErrorBoundary';
 

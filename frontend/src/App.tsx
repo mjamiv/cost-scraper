@@ -1,17 +1,30 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
 import { Agentation } from 'agentation';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel, RightPanelTab } from './components/RightPanel';
 import { SidebarFilters } from './components/SidebarFilters';
-import { DataTable } from './components/DataTable';
-import { CostCharts } from './components/CostCharts';
-import { DataExportPanel } from './components/DataExportPanel';
-import { ChatInterface } from './components/ChatInterface';
-import { VoiceChatPanel } from './components/VoiceChatPanel';
-// WBSDataInspector removed - functionality integrated into main flow
 import { fetchCostData, fetchWBSData, isStaticDeployment, ChartRequest } from './api/costDataApi';
 import { CostDataRow, QueryFilters, WBSDataRow } from './api/types';
 import { mergeCostDataWithTags, filterByWBSTags, CostDataRowWithTags } from './utils/wbsDataMerger';
+
+// Lazy load heavy components for better initial load performance
+const DataTable = lazy(() => import('./components/DataTable').then(m => ({ default: m.DataTable })));
+const CostCharts = lazy(() => import('./components/CostCharts').then(m => ({ default: m.CostCharts })));
+const DataExportPanel = lazy(() => import('./components/DataExportPanel').then(m => ({ default: m.DataExportPanel })));
+const ChatInterface = lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
+const VoiceChatPanel = lazy(() => import('./components/VoiceChatPanel').then(m => ({ default: m.VoiceChatPanel })));
+
+// Loading fallback component
+function LoadingFallback({ message = 'Loading...' }: { message?: string }) {
+  return (
+    <div className="flex items-center justify-center h-full min-h-[200px]">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-2 border-gold border-t-transparent rounded-full animate-spin" />
+        <span className="text-sm text-neutral-400">{message}</span>
+      </div>
+    </div>
+  );
+}
 
 const DEFAULT_FILTERS: QueryFilters = {
   projectNumbers: '106073',
@@ -182,36 +195,54 @@ function App() {
 
   return (
     <div className="app-layout">
+      {/* Skip to main content link for keyboard users */}
+      <a 
+        href="#main-content" 
+        className="skip-link"
+        onClick={(e) => {
+          e.preventDefault();
+          const main = document.getElementById('main-content');
+          if (main) {
+            main.focus();
+            main.scrollIntoView();
+          }
+        }}
+      >
+        Skip to main content
+      </a>
+
       {/* Header */}
-      <header className="app-header">
+      <header className="app-header" role="banner">
         <div className="flex items-center gap-3">
           {/* Sidebar Toggle */}
           <button
             onClick={() => setLeftSidebarOpen(!leftSidebarOpen)}
             className="header-menu-btn"
-            title={leftSidebarOpen ? 'Close filters' : 'Open filters'}
+            aria-label={leftSidebarOpen ? 'Close filters panel' : 'Open filters panel'}
+            aria-expanded={leftSidebarOpen}
+            aria-controls="sidebar-filters"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
           </button>
 
           {/* Logo */}
           <div className="flex items-center gap-3">
-            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="Northstar" className="header-logo-img" />
+            <img src={`${import.meta.env.BASE_URL}logo.png`} alt="" className="header-logo-img" aria-hidden="true" />
             <h1 className="text-lg font-bold tracking-tight">northstar.cost-chat</h1>
           </div>
         </div>
 
-        {/* Right side */}
-        <div className="flex items-center gap-4">
-          {/* Voice Chat Button - Chat bubble with dollar sign */}
+        {/* Right side navigation */}
+        <nav className="flex items-center gap-4" role="navigation" aria-label="Main navigation">
+          {/* Voice Chat Button */}
           <button
             onClick={() => setVoiceChatOpen(true)}
             className="header-menu-btn"
-            title="Voice Cost Assistant"
+            aria-label="Open voice cost assistant"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} aria-hidden="true">
               <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2v10z" strokeLinecap="round" strokeLinejoin="round" />
               <path d="M12 7v2m0 4v2m-2-6c0-1 .5-2 2-2s2 1 2 2-.5 1.5-2 2c-1.5.5-2 1-2 2s.5 2 2 2 2-1 2-2" strokeLinecap="round" />
             </svg>
@@ -221,9 +252,10 @@ function App() {
           <button
             onClick={() => setAboutOpen(true)}
             className="header-menu-btn"
-            title="About this application"
+            aria-label="About this application"
+            aria-haspopup="dialog"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </button>
@@ -232,13 +264,15 @@ function App() {
           <button
             onClick={() => setRightPanelOpen(!rightPanelOpen)}
             className={`header-menu-btn ${rightPanelOpen ? 'active' : ''}`}
-            title={rightPanelOpen ? 'Close panel' : 'Open chart/table'}
+            aria-label={rightPanelOpen ? 'Close chart and table panel' : 'Open chart and table panel'}
+            aria-expanded={rightPanelOpen}
+            aria-controls="right-panel"
           >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
           </button>
-        </div>
+        </nav>
       </header>
 
       {/* Body */}
@@ -259,7 +293,7 @@ function App() {
         </Sidebar>
 
         {/* Main Chat Area */}
-        <main className="app-main">
+        <main className="app-main" id="main-content" tabIndex={-1} role="main" aria-label="Chat interface">
           {/* Error Alert */}
           {error && (
             <div className="chat-error-alert">
@@ -282,12 +316,14 @@ function App() {
           )}
 
           {/* Chat Interface */}
-          <ChatInterface
-            data={mergedData}
-            onCommand={handleChatCommand}
-            filterHints={filterHints}
-            onChartRequest={handleChatChartRequest}
-          />
+          <Suspense fallback={<LoadingFallback message="Loading chat..." />}>
+            <ChatInterface
+              data={mergedData}
+              onCommand={handleChatCommand}
+              filterHints={filterHints}
+              onChartRequest={handleChatChartRequest}
+            />
+          </Suspense>
         </main>
 
         {/* Right Panel - Chart/Table/Export */}
@@ -301,7 +337,9 @@ function App() {
           {rightPanelTab === 'chart' && (
             <div className="right-panel-chart-container">
               {mergedData.length > 0 ? (
-                <CostCharts data={mergedData} chartRequest={chatChartRequest} />
+                <Suspense fallback={<LoadingFallback message="Loading charts..." />}>
+                  <CostCharts data={mergedData} chartRequest={chatChartRequest} />
+                </Suspense>
               ) : (
                 <div className="panel-empty-state">
                   <p>No data loaded. Use filters to load project data.</p>
@@ -312,7 +350,9 @@ function App() {
           {rightPanelTab === 'table' && (
             <div className="right-panel-table-container">
               {data.length > 0 ? (
-                <DataTable data={data} isLoading={isLoading} />
+                <Suspense fallback={<LoadingFallback message="Loading table..." />}>
+                  <DataTable data={data} isLoading={isLoading} />
+                </Suspense>
               ) : (
                 <div className="panel-empty-state">
                   <p>No data loaded. Use filters to load project data.</p>
@@ -323,7 +363,9 @@ function App() {
           {rightPanelTab === 'export' && (
             <div className="right-panel-export-container">
               {data.length > 0 ? (
-                <DataExportPanel data={data} />
+                <Suspense fallback={<LoadingFallback message="Loading export..." />}>
+                  <DataExportPanel data={data} />
+                </Suspense>
               ) : (
                 <div className="panel-empty-state">
                   <p>No data loaded. Use filters to load project data.</p>
@@ -389,11 +431,15 @@ function App() {
       )}
 
       {/* Voice Chat Panel */}
-      <VoiceChatPanel
-        data={mergedData}
-        isOpen={voiceChatOpen}
-        onClose={() => setVoiceChatOpen(false)}
-      />
+      {voiceChatOpen && (
+        <Suspense fallback={<LoadingFallback message="Loading voice chat..." />}>
+          <VoiceChatPanel
+            data={mergedData}
+            isOpen={voiceChatOpen}
+            onClose={() => setVoiceChatOpen(false)}
+          />
+        </Suspense>
+      )}
 
       {/* Agentation - development only */}
       {import.meta.env.DEV && <Agentation />}
