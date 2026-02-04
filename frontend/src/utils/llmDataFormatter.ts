@@ -142,7 +142,12 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
         totalSpendJTD: 0,
         totalForecast: 0,
         budgetVariance: 0,
-        status: 'on_budget',
+        totalManhours: 0,
+        totalManhoursBudget: 0,
+        percentComplete: 0,
+        earnedValue: 0,
+        cpi: 0,
+        status: 'on_budget' as const,
       },
       byProject: [],
       byPeriod: [],
@@ -282,14 +287,23 @@ export function generateLLMSummary(rawData: CostDataRow[]): LLMCostSummary {
   });
 
   // Find top variance items
-  const varianceItems = data
-    .map(row => ({
-      project: String(row.PROJECT_NUMBER || ''),
-      cbsHierarchy: String(row.CBS_HIERARCHY || ''),
-      description: String(row.WBS_DESCRIPTION || ''),
-      variance: parseFloat(String(row.SL_VARIANCE)) || 0,
-      type: (parseFloat(String(row.SL_VARIANCE)) || 0) >= 0 ? 'favorable' : 'unfavorable' as const,
-    }))
+  const varianceItems: Array<{
+    project: string;
+    cbsHierarchy: string;
+    description: string;
+    variance: number;
+    type: 'favorable' | 'unfavorable';
+  }> = data
+    .map(row => {
+      const variance = parseFloat(String(row.SL_VARIANCE)) || 0;
+      return {
+        project: String(row.PROJECT_NUMBER || ''),
+        cbsHierarchy: String(row.CBS_HIERARCHY || ''),
+        description: String(row.WBS_DESCRIPTION || ''),
+        variance,
+        type: variance >= 0 ? 'favorable' as const : 'unfavorable' as const,
+      };
+    })
     .filter(item => item.variance !== 0)
     .sort((a, b) => Math.abs(b.variance) - Math.abs(a.variance))
     .slice(0, 10);

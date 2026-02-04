@@ -1,5 +1,4 @@
 import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
-import { Agentation } from 'agentation';
 import { Sidebar } from './components/Sidebar';
 import { RightPanel, RightPanelTab } from './components/RightPanel';
 import { SidebarFilters } from './components/SidebarFilters';
@@ -42,7 +41,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
-  const sidebarTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const sidebarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
   const [aboutOpen, setAboutOpen] = useState(false);
@@ -190,7 +189,7 @@ function App() {
       .filter(Boolean),
     start_month: filters.startMonth || undefined,
     district_id: filters.districtId || undefined,
-    wbs_tags: filters.wbsTags || {},
+    wbs_tags: (filters.wbsTags || {}) as Record<string, string[]>,
   }), [filters]);
 
   return (
@@ -441,8 +440,6 @@ function App() {
         </Suspense>
       )}
 
-      {/* Agentation - development only */}
-      {import.meta.env.DEV && <Agentation />}
     </div>
   );
 }

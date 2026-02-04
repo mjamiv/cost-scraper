@@ -9,7 +9,6 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { CostDataRow, QueryFilters, WBSDataRow } from '../api/types';
 import { ChartRequest } from '../api/costDataApi';
-import { CostDataRowWithTags } from '../utils/wbsDataMerger';
 
 // ============================================================================
 // Types
@@ -100,7 +99,7 @@ const DEFAULT_CHAT_STATE: ChatState = {
 export const useAppStore = create<AppState>()(
   devtools(
     persist(
-      (set, get) => ({
+      (set) => ({
         // Initial State
         ...DEFAULT_UI_STATE,
         ...DEFAULT_DATA_STATE,

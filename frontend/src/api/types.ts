@@ -86,6 +86,22 @@ export interface Project {
   PROJECT_NUMBER: string;
   LEAD_DISTRICT_ID: string | null;
   LEAD_DISTRICT: string | null;
+  PROJECT_DESCRIPTION?: string | null;
+}
+
+export interface ProjectsResponse {
+  success: boolean;
+  projects: Project[];
+  count: number;
+  timing_ms: number;
+}
+
+export interface ChatFilterHints {
+  project_numbers?: string[];
+  start_month?: string;
+  end_month?: string;
+  district_id?: string;
+  wbs_tags?: Record<string, string[]>;
 }
 
 export interface FilterOptions {

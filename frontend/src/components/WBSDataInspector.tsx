@@ -207,8 +207,8 @@ export function WBSDataInspector({ isOpen, onClose, projectNumbers, fiscalMonth 
                             key={colIdx}
                             className="px-3 py-2 text-neutral-300 whitespace-nowrap font-mono text-xs"
                           >
-                            {(row as Record<string, unknown>)[col] != null
-                              ? String((row as Record<string, unknown>)[col])
+                            {(row as unknown as Record<string, unknown>)[col] != null
+                              ? String((row as unknown as Record<string, unknown>)[col])
                               : <span className="text-neutral-600">null</span>
                             }
                           </td>

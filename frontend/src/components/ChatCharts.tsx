@@ -258,9 +258,8 @@ export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRa
 
   if (!chartData.length) return null;
 
-  // Calculate SPI and CPI for the latest period
+  // Calculate CPI for the latest period
   const latest = chartData[chartData.length - 1];
-  const spi = latest.earnedValue > 0 && latest.budget > 0 ? (latest.earnedValue / (latest.budget * (chartData.length / 12))).toFixed(2) : 'N/A';
   const cpi = latest.actualSpend > 0 ? (latest.earnedValue / latest.actualSpend).toFixed(2) : 'N/A';
 
   return (

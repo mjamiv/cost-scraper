@@ -347,7 +347,6 @@ export function useRealtimeVoice(options: UseRealtimeVoiceOptions): UseRealtimeV
           channelCount: { ideal: 1 },           // Mono audio for voice
           sampleRate: { ideal: 24000 },         // Match OpenAI's expected sample rate
           sampleSize: { ideal: 16 },            // 16-bit audio
-          latency: { ideal: 0.01 },             // Low latency
         }
       });
       localStreamRef.current = localStream;

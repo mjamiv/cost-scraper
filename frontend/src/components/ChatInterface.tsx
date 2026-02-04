@@ -238,49 +238,6 @@ interface ChatInterfaceProps {
   onChartRequest?: (request: ChartRequest) => void;
 }
 
-// Analysis categories with targeted prompts
-const ANALYSIS_CATEGORIES = [
-  {
-    id: 'overview',
-    label: 'Overview',
-    icon: '📊',
-    prompts: [
-      'Give me an executive summary of the cost status',
-      'What are the key financial metrics I should know?',
-      'Summarize budget vs actual performance',
-    ],
-  },
-  {
-    id: 'variance',
-    label: 'Variance',
-    icon: '⚠️',
-    prompts: [
-      'What are the top 5 unfavorable variances?',
-      'Which cost categories are over budget?',
-      'Show me a variance chart',
-    ],
-  },
-  {
-    id: 'forecast',
-    label: 'Forecast',
-    icon: '🔮',
-    prompts: [
-      'What is the forecast at completion?',
-      'How has the forecast changed recently?',
-      'Are we trending over or under budget?',
-    ],
-  },
-  {
-    id: 'charts',
-    label: 'Charts',
-    icon: '📈',
-    prompts: [
-      'Show me the spend trend chart',
-      'Show me a project comparison chart',
-      'Show me budget allocation pie chart',
-    ],
-  },
-];
 
 // Command help text
 const COMMAND_HELP = `
@@ -303,14 +260,13 @@ const COMMAND_HELP = `
 | \`/help\` | Show this help |
 `;
 
-export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
+export function ChatInterface({ data, onCommand, filterHints, onChartRequest }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<ExtendedChatMessageWithMeta[]>([]);
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [voiceEnabled, setVoiceEnabled] = useState(false);
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const [showExportMenu, setShowExportMenu] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -458,7 +414,6 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
 
     const timestamp = getTimestamp();
     setInput('');
-    setActiveCategory(null);
 
     // Check for commands
     if (userMessage.startsWith('/')) {
@@ -616,7 +571,6 @@ export function ChatInterface({ data, onCommand }: ChatInterfaceProps) {
   const handleClear = () => {
     setMessages([]);
     stopAudio();
-    setActiveCategory(null);
   };
 
   const handleCopyMessage = async (content: string) => {
