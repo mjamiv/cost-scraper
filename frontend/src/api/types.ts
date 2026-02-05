@@ -104,12 +104,20 @@ export interface ChatFilterHints {
   wbs_tags?: Record<string, string[]>;
 }
 
+export interface ProjectsResponse {
+  success: boolean;
+  projects: Project[];
+  count: number;
+  timing_ms: number;
+}
+
 export interface FilterOptions {
   districts: District[];
   fiscal_months: string[];
 }
 
 export interface WBSTagFilters {
+  wbsElement?: string[];
   area?: string[];
   phase?: string[];
   dGroup?: string[];

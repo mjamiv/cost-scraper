@@ -3,7 +3,7 @@ import ReactMarkdown, { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CostDataRow } from '../api/types';
 import { ChatMessage, ChatFilterHints, ChartRequest, sendChatMessage, transcribeAudio, synthesizeSpeech } from '../api/costDataApi';
-import { InlineChatChart, ChartType, detectChartRequest, parseDateRange } from './ChatCharts';
+import { InlineChatChart, ChartType, detectChartRequest, parseDateRange, parseChartIntent } from './ChatCharts';
 
 interface ExtendedChatMessage extends ChatMessage {
   chartType?: ChartType;
@@ -224,6 +224,10 @@ interface ExtendedChatMessageWithMeta extends ExtendedChatMessage {
   confidence?: 'high' | 'medium' | 'low';
   needsClarification?: boolean;
   projects?: string[];
+  tags?: Record<string, string[]>;
+  metric?: string | null;
+  groupBy?: string | null;
+  style?: 'line' | 'bar' | 'stacked' | 'combo' | null;
 }
 
 // Helper to get formatted timestamp
@@ -494,19 +498,39 @@ export function ChatInterface({ data, onCommand, filterHints, onChartRequest }: 
 
     // Check if user is asking for a chart and parse date range
     const detectedChart = detectChartRequest(userMessage);
-    const dateRange = parseDateRange(userMessage);
+    const chartIntent = detectedChart ? parseChartIntent(userMessage) : null;
+    const dateRange = chartIntent?.dateRange || parseDateRange(userMessage);
+    const intentTags = chartIntent?.filters?.tags || undefined;
+    const intentProjects = chartIntent?.filters?.projects || undefined;
 
     // Normal message flow
     setIsLoading(true);
     const newUserMessage: ExtendedChatMessageWithMeta = { role: 'user', content: userMessage, timestamp };
     setMessages(prev => [...prev, newUserMessage]);
-    setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined, timestamp, dateRange }]);
+    setMessages(prev => [...prev, { role: 'assistant', content: '', chartType: detectedChart || undefined, timestamp, dateRange, projects: intentProjects, tags: intentTags, metric: chartIntent?.metric, groupBy: chartIntent?.groupBy, style: chartIntent?.style }]);
+
+    // If chart intent detected, immediately open chart with overrides
+    if (chartIntent && onChartRequest) {
+      onChartRequest({
+        type: chartIntent.type,
+        metric: chartIntent.metric ?? null,
+        groupBy: chartIntent.groupBy ?? null,
+        projects: intentProjects ?? null,
+        dateRange: chartIntent.dateRange ?? null,
+        tags: intentTags ?? null,
+        style: chartIntent.style ?? null,
+      });
+    }
 
     try {
+      const effectiveFilterHints = intentTags
+        ? { ...filterHints, wbs_tags: intentTags }
+        : filterHints;
+
       const response = await sendChatMessage({
         message: userMessage,
         history: messages.map(m => ({ role: m.role, content: m.content })),
-        filter_hints: filterHints,
+        filter_hints: effectiveFilterHints,
         context_prefs: { exclude_current_month: false },
       });
 
@@ -520,7 +544,11 @@ export function ChatInterface({ data, onCommand, filterHints, onChartRequest }: 
 
       const chartType = response.chart_request?.type as ChartType | undefined;
       const chartRange = response.chart_request?.dateRange || dateRange;
-      const chartProjects = response.chart_request?.projects || undefined;
+      const chartProjects = response.chart_request?.projects || intentProjects || undefined;
+      const chartTags = response.chart_request?.tags || intentTags;
+      const chartMetric = response.chart_request?.metric || chartIntent?.metric;
+      const chartGroupBy = response.chart_request?.groupBy || chartIntent?.groupBy;
+      const chartStyle = response.chart_request?.style || chartIntent?.style;
 
       setMessages(prev => {
         const updated = [...prev];
@@ -531,6 +559,10 @@ export function ChatInterface({ data, onCommand, filterHints, onChartRequest }: 
           chartType: chartType || lastMsg.chartType,
           dateRange: chartRange || lastMsg.dateRange,
           projects: chartProjects || lastMsg.projects,
+          tags: chartTags || lastMsg.tags,
+          metric: chartMetric || lastMsg.metric,
+          groupBy: chartGroupBy || lastMsg.groupBy,
+          style: chartStyle || lastMsg.style,
           confidence: response.confidence,
           needsClarification: response.needs_clarification,
         };
@@ -696,6 +728,10 @@ export function ChatInterface({ data, onCommand, filterHints, onChartRequest }: 
                                 data={data}
                                 dateRange={message.dateRange}
                                 projects={message.projects}
+                                tags={message.tags}
+                                metric={message.metric}
+                                groupBy={message.groupBy}
+                                style={message.style}
                               />
                             </div>
                           )}
@@ -710,6 +746,10 @@ export function ChatInterface({ data, onCommand, filterHints, onChartRequest }: 
                         data={data}
                         dateRange={message.dateRange}
                         projects={message.projects}
+                        tags={message.tags}
+                        metric={message.metric}
+                        groupBy={message.groupBy}
+                        style={message.style}
                       />
                     ) : (
                       <LoadingSkeleton />

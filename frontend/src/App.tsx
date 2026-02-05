@@ -9,6 +9,7 @@ import { mergeCostDataWithTags, filterByWBSTags, CostDataRowWithTags } from './u
 // Lazy load heavy components for better initial load performance
 const DataTable = lazy(() => import('./components/DataTable').then(m => ({ default: m.DataTable })));
 const CostCharts = lazy(() => import('./components/CostCharts').then(m => ({ default: m.CostCharts })));
+const MetricTrendChart = lazy(() => import('./components/ChatCharts').then(m => ({ default: m.MetricTrendChart })));
 const DataExportPanel = lazy(() => import('./components/DataExportPanel').then(m => ({ default: m.DataExportPanel })));
 const ChatInterface = lazy(() => import('./components/ChatInterface').then(m => ({ default: m.ChatInterface })));
 const VoiceChatPanel = lazy(() => import('./components/VoiceChatPanel').then(m => ({ default: m.VoiceChatPanel })));
@@ -337,7 +338,19 @@ function App() {
             <div className="right-panel-chart-container">
               {mergedData.length > 0 ? (
                 <Suspense fallback={<LoadingFallback message="Loading charts..." />}>
-                  <CostCharts data={mergedData} chartRequest={chatChartRequest} />
+                  {chatChartRequest?.type === 'metric-trend' ? (
+                    <MetricTrendChart
+                      data={mergedData}
+                      dateRange={chatChartRequest?.dateRange || undefined}
+                      projects={chatChartRequest?.projects || undefined}
+                      tags={chatChartRequest?.tags || filters.wbsTags}
+                      metric={chatChartRequest?.metric || undefined}
+                      groupBy={chatChartRequest?.groupBy || undefined}
+                      style={chatChartRequest?.style || undefined}
+                    />
+                  ) : (
+                    <CostCharts data={mergedData} chartRequest={chatChartRequest} activeFilters={filters.wbsTags} />
+                  )}
                 </Suspense>
               ) : (
                 <div className="panel-empty-state">

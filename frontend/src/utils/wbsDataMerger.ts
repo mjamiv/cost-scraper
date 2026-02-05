@@ -33,12 +33,28 @@ export function mergeCostDataWithTags(
     }
   }
 
+  // Track merge statistics for debugging
+  let matchCount = 0;
+  let missCount = 0;
+  let multiplierCount = 0;
+
   // Merge cost data with WBS tags
-  return costData.map(cost => {
+  const result = costData.map(cost => {
     const wbsTags = wbsTagMap.get(cost.WBS_ELEMENT);
+
+    if (wbsTags) {
+      matchCount++;
+    } else {
+      missCount++;
+    }
+
     // Parse USER_DEFINED_13 as a number for the multiplier
     const multiplierRaw = wbsTags?.USER_DEFINED_13;
     const multiplier = multiplierRaw ? parseFloat(multiplierRaw) : null;
+
+    if (multiplier && !isNaN(multiplier)) {
+      multiplierCount++;
+    }
 
     return {
       ...cost,
@@ -55,6 +71,21 @@ export function mergeCostDataWithTags(
       TAG25: wbsTags?.TAG25 ?? null,
     };
   });
+
+  // Log merge statistics for debugging
+  console.log(`[WBS Merge] Cost rows: ${costData.length}, WBS rows: ${wbsData.length}`);
+  console.log(`[WBS Merge] Matches: ${matchCount}, Misses: ${missCount}, With MULTIPLIER: ${multiplierCount}`);
+
+  if (missCount > 0 && costData.length > 0) {
+    // Sample some unmatched WBS_ELEMENT values for debugging
+    const unmatchedSample = costData
+      .filter(c => !wbsTagMap.has(c.WBS_ELEMENT))
+      .slice(0, 3)
+      .map(c => c.WBS_ELEMENT);
+    console.log(`[WBS Merge] Sample unmatched WBS_ELEMENT: ${unmatchedSample.join(', ')}`);
+  }
+
+  return result;
 }
 
 /**
@@ -76,6 +107,7 @@ export function filterByWBSTags(
     if (!matchesFilter(filters.area, row.AREA)) return false;
     if (!matchesFilter(filters.phase, row.PHASE)) return false;
     if (!matchesFilter(filters.dGroup, row.D_GROUP)) return false;
+    if (!matchesFilter(filters.wbsElement, row.WBS_ELEMENT)) return false;
     if (!matchesFilter(filters.accountCode, row.ACCOUNT_CODE)) return false;
     if (!matchesFilter(filters.userDefined7, row.USER_DEFINED_7)) return false;
     if (!matchesFilter(filters.districtSpecificTag16, row.DISTRICT_SPECIFIC_TAG_16)) return false;

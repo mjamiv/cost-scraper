@@ -1,14 +1,12 @@
 """
-Snowflake connection and query execution with connection pooling.
+Snowflake connection and query execution.
 Supports multiple authentication methods:
   - Password (simplest)
   - SSO/Browser (externalbrowser)
   - Key-pair (production)
 
-Connection Pooling:
-  - Maintains a pool of reusable connections
-  - Reduces connection overhead (50-200ms per query)
-  - Handles connection lifecycle and cleanup
+Connection pooling and token caching are enabled for SSO to minimize browser pop-ups.
+Install with: pip install snowflake-connector-python[secure-local-storage]
 """
 
 import time
@@ -16,7 +14,6 @@ import logging
 import threading
 from typing import Any, Optional
 from contextlib import contextmanager
-from queue import Queue, Empty
 
 import snowflake.connector
 from cryptography.hazmat.primitives import serialization
@@ -26,237 +23,23 @@ from app.config import get_settings, get_private_key_bytes
 
 logger = logging.getLogger(__name__)
 
-
-# ============================================================================
-# Connection Pool
-# ============================================================================
-
-class ConnectionPool:
-    """
-    Thread-safe connection pool for Snowflake connections.
-    
-    Features:
-    - Lazy connection creation
-    - Connection health checks
-    - Automatic reconnection on failure
-    - Configurable pool size and timeout
-    """
-    
-    def __init__(self, pool_size: int = 5, timeout: int = 30):
-        self._pool: Queue = Queue(maxsize=pool_size)
-        self._pool_size = pool_size
-        self._timeout = timeout
-        self._created_count = 0
-        self._lock = threading.Lock()
-        self._closed = False
-        logger.info(f"Connection pool initialized: size={pool_size}, timeout={timeout}s")
-    
-    def _get_connection_params(self) -> dict:
-        """Build connection parameters based on config."""
-        settings = get_settings()
-        
-        conn_params = {
-            "account": settings.sf_account,
-            "user": settings.sf_user,
-            "role": settings.sf_role,
-            "warehouse": settings.sf_warehouse,
-        }
-        
-        # Determine auth method
-        if settings.sf_authenticator:
-            conn_params["authenticator"] = settings.sf_authenticator
-        elif settings.sf_password:
-            conn_params["password"] = settings.sf_password
-        elif settings.sf_private_key_b64:
-            conn_params["private_key"] = get_private_key()
-        else:
-            raise ValueError(
-                "No authentication configured. Set one of: "
-                "SF_PASSWORD, SF_AUTHENTICATOR, or SF_PRIVATE_KEY_B64"
-            )
-        
-        return conn_params
-    
-    def _create_connection(self) -> snowflake.connector.SnowflakeConnection:
-        """Create a new Snowflake connection."""
-        settings = get_settings()
-        logger.info(f"Creating new Snowflake connection to {settings.sf_account}")
-        start = time.time()
-        
-        conn_params = self._get_connection_params()
-        conn = snowflake.connector.connect(**conn_params)
-        
-        elapsed = (time.time() - start) * 1000
-        logger.info(f"New connection created in {elapsed:.0f}ms")
-        
-        return conn
-    
-    def _is_connection_alive(self, conn: snowflake.connector.SnowflakeConnection) -> bool:
-        """Check if a connection is still valid."""
-        try:
-            if conn.is_closed():
-                return False
-            # Quick health check
-            cur = conn.cursor()
-            try:
-                cur.execute("SELECT 1")
-                cur.fetchone()
-                return True
-            finally:
-                cur.close()
-        except Exception as e:
-            logger.warning(f"Connection health check failed: {e}")
-            return False
-    
-    def get_connection(self) -> snowflake.connector.SnowflakeConnection:
-        """
-        Get a connection from the pool.
-        Creates a new connection if pool is empty and under limit.
-        """
-        if self._closed:
-            raise RuntimeError("Connection pool is closed")
-        
-        # Try to get an existing connection
-        try:
-            conn = self._pool.get_nowait()
-            if self._is_connection_alive(conn):
-                logger.debug("Reusing pooled connection")
-                return conn
-            else:
-                # Connection is dead, try to close it
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-                with self._lock:
-                    self._created_count -= 1
-        except Empty:
-            pass
-        
-        # Create new connection if under limit
-        with self._lock:
-            if self._created_count < self._pool_size:
-                self._created_count += 1
-                try:
-                    return self._create_connection()
-                except Exception:
-                    self._created_count -= 1
-                    raise
-        
-        # Wait for a connection to become available
-        try:
-            conn = self._pool.get(timeout=self._timeout)
-            if self._is_connection_alive(conn):
-                return conn
-            else:
-                try:
-                    conn.close()
-                except Exception:
-                    pass
-                with self._lock:
-                    self._created_count -= 1
-                # Retry
-                return self.get_connection()
-        except Empty:
-            raise TimeoutError(f"Could not get connection within {self._timeout}s")
-    
-    def return_connection(self, conn: snowflake.connector.SnowflakeConnection) -> None:
-        """Return a connection to the pool."""
-        if self._closed:
-            try:
-                conn.close()
-            except Exception:
-                pass
-            return
-        
-        try:
-            self._pool.put_nowait(conn)
-            logger.debug("Connection returned to pool")
-        except Exception:
-            # Pool is full, close this connection
-            try:
-                conn.close()
-            except Exception:
-                pass
-            with self._lock:
-                self._created_count -= 1
-    
-    def close_all(self) -> None:
-        """Close all connections in the pool."""
-        self._closed = True
-        closed_count = 0
-        
-        while True:
-            try:
-                conn = self._pool.get_nowait()
-                try:
-                    conn.close()
-                    closed_count += 1
-                except Exception as e:
-                    logger.warning(f"Error closing connection: {e}")
-            except Empty:
-                break
-        
-        with self._lock:
-            self._created_count = 0
-        
-        logger.info(f"Connection pool closed: {closed_count} connections closed")
-    
-    @property
-    def stats(self) -> dict:
-        """Get pool statistics."""
-        return {
-            "pool_size": self._pool_size,
-            "created_count": self._created_count,
-            "available": self._pool.qsize(),
-            "closed": self._closed
-        }
-
-
-# Global connection pool instance
-_pool: Optional[ConnectionPool] = None
+# Connection pool - maintains a single connection per thread
+_connection_pool: dict[int, tuple[Any, float]] = {}
 _pool_lock = threading.Lock()
+CONNECTION_TIMEOUT_SECONDS = 3600  # Reuse connections for up to 1 hour
 
 
-def get_pool() -> ConnectionPool:
-    """Get or create the global connection pool."""
-    global _pool
-    
-    if _pool is None:
-        with _pool_lock:
-            if _pool is None:
-                settings = get_settings()
-                _pool = ConnectionPool(
-                    pool_size=settings.sf_pool_size,
-                    timeout=settings.sf_pool_timeout
-                )
-    
-    return _pool
-
-
-def close_all_connections() -> None:
-    """
-    Close all pooled connections.
-    Call this on application shutdown.
-    """
-    global _pool
-    
+def get_pool_stats() -> dict[str, Any]:
+    """Return basic connection pool stats for monitoring."""
     with _pool_lock:
-        if _pool is not None:
-            _pool.close_all()
-            _pool = None
-            logger.info("All Snowflake connections closed")
+        pool_size = len(_connection_pool)
+    return {
+        "pool_size": pool_size,
+        "created_count": pool_size,
+        "available": pool_size,
+        "closed": False,
+    }
 
-
-def get_pool_stats() -> dict:
-    """Get connection pool statistics."""
-    pool = get_pool()
-    return pool.stats
-
-
-# ============================================================================
-# Private Key Handling
-# ============================================================================
 
 def get_private_key():
     """Load and decrypt the private key (for key-pair auth)."""
@@ -273,36 +56,134 @@ def get_private_key():
     )
 
 
-# ============================================================================
-# Connection Context Manager
-# ============================================================================
+def _create_connection():
+    """
+    Create a new Snowflake connection using the configured auth method.
+    Priority: SSO > Password > Key-pair
+    """
+    settings = get_settings()
+
+    logger.info(f"Creating new Snowflake connection to account: {settings.sf_account}")
+    start = time.time()
+
+    # Base connection params
+    conn_params = {
+        "account": settings.sf_account,
+        "user": settings.sf_user,
+        "role": settings.sf_role,
+        "warehouse": settings.sf_warehouse,
+    }
+
+    # Determine auth method
+    if settings.sf_authenticator:
+        # SSO/Browser auth with token caching
+        logger.info(f"Using authenticator: {settings.sf_authenticator}")
+        conn_params["authenticator"] = settings.sf_authenticator
+        # Enable token caching to minimize SSO browser pop-ups
+        # Requires: pip install snowflake-connector-python[secure-local-storage]
+        conn_params["client_store_temporary_credential"] = True
+
+    elif settings.sf_password:
+        # Password auth
+        logger.info("Using password authentication")
+        conn_params["password"] = settings.sf_password
+
+    elif settings.sf_private_key_b64:
+        # Key-pair auth
+        logger.info("Using key-pair authentication")
+        conn_params["private_key"] = get_private_key()
+
+    else:
+        raise ValueError(
+            "No authentication configured. Set one of: "
+            "SF_PASSWORD, SF_AUTHENTICATOR, or SF_PRIVATE_KEY_B64"
+        )
+
+    conn = snowflake.connector.connect(**conn_params)
+
+    elapsed = (time.time() - start) * 1000
+    logger.info(f"Connected to Snowflake in {elapsed:.0f}ms")
+
+    return conn
+
+
+def _get_pooled_connection():
+    """
+    Get a connection from the pool or create a new one.
+    Connections are reused within the timeout period.
+    """
+    thread_id = threading.get_ident()
+    now = time.time()
+
+    with _pool_lock:
+        if thread_id in _connection_pool:
+            conn, created_at = _connection_pool[thread_id]
+            age = now - created_at
+
+            # Check if connection is still valid and not expired
+            if age < CONNECTION_TIMEOUT_SECONDS:
+                try:
+                    # Quick validation check
+                    conn.cursor().execute("SELECT 1").close()
+                    logger.debug(f"Reusing pooled connection (age: {age:.0f}s)")
+                    return conn, False  # False = don't close after use
+                except Exception as e:
+                    logger.warning(f"Pooled connection invalid, creating new: {e}")
+                    try:
+                        conn.close()
+                    except Exception:
+                        pass
+
+            else:
+                logger.info(f"Pooled connection expired (age: {age:.0f}s), creating new")
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+
+        # Create new connection
+        conn = _create_connection()
+        _connection_pool[thread_id] = (conn, now)
+        return conn, False  # Keep in pool
+
 
 @contextmanager
 def get_connection():
     """
     Get a Snowflake connection from the pool.
-    
-    Uses connection pooling for better performance.
-    Connection is automatically returned to pool after use.
+    Connections are reused to avoid repeated SSO prompts.
     """
-    pool = get_pool()
     conn = None
-    
+    should_close = False
+
     try:
-        conn = pool.get_connection()
+        conn, should_close = _get_pooled_connection()
         yield conn
-    except Exception as e:
-        # If there was an error, don't return connection to pool
-        if conn is not None:
+
+    except snowflake.connector.errors.ProgrammingError as e:
+        # If session is invalid, remove from pool and re-raise
+        thread_id = threading.get_ident()
+        with _pool_lock:
+            if thread_id in _connection_pool:
+                del _connection_pool[thread_id]
+        raise
+
+    finally:
+        if should_close and conn:
+            conn.close()
+            logger.info("Snowflake connection closed")
+
+
+def close_all_connections():
+    """Close all pooled connections. Call on app shutdown."""
+    with _pool_lock:
+        for thread_id, (conn, _) in list(_connection_pool.items()):
             try:
                 conn.close()
-            except Exception:
-                pass
-            conn = None
-        raise
-    finally:
-        if conn is not None:
-            pool.return_connection(conn)
+                logger.info(f"Closed pooled connection for thread {thread_id}")
+            except Exception as e:
+                logger.warning(f"Error closing connection: {e}")
+        _connection_pool.clear()
 
 
 def test_connection() -> dict[str, Any]:

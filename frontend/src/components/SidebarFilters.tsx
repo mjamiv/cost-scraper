@@ -1,6 +1,7 @@
-import { useState, useRef, useEffect } from 'react';
-import { QueryFilters, CostDataRow, WBSTagFilters } from '../api/types';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { QueryFilters, CostDataRow, WBSTagFilters, Project } from '../api/types';
 import { CostDataRowWithTags, getUniqueTagValues } from '../utils/wbsDataMerger';
+import { fetchProjects } from '../api/costDataApi';
 
 interface SidebarFiltersProps {
   filters: QueryFilters;
@@ -155,14 +156,291 @@ function MultiSelectDropdown({ label, options, selectedValues, onChange }: Multi
   );
 }
 
+// Project Search Dropdown with autocomplete
+interface ProjectSearchDropdownProps {
+  projects: Project[];
+  selectedProjects: string[];
+  onChange: (projects: string[]) => void;
+  isLoadingProjects: boolean;
+  onKeyPress?: (e: React.KeyboardEvent) => void;
+}
+
+function ProjectSearchDropdown({
+  projects,
+  selectedProjects,
+  onChange,
+  isLoadingProjects,
+  onKeyPress,
+}: ProjectSearchDropdownProps) {
+  const [isOpen, setIsOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [manualValue, setManualValue] = useState('');
+  const dropdownRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Filter projects by search term
+  const filteredProjects = useMemo(() => {
+    if (!searchTerm) return projects;
+    const term = searchTerm.toLowerCase();
+    return projects.filter(p =>
+      p.PROJECT_NUMBER.toLowerCase().includes(term) ||
+      (p.PROJECT_DESCRIPTION?.toLowerCase().includes(term) ?? false)
+    );
+  }, [projects, searchTerm]);
+
+  const toggleProject = (projectNumber: string) => {
+    if (selectedProjects.includes(projectNumber)) {
+      onChange(selectedProjects.filter(p => p !== projectNumber));
+    } else {
+      onChange([...selectedProjects, projectNumber]);
+    }
+  };
+
+  const selectAll = () => onChange(filteredProjects.map(p => p.PROJECT_NUMBER));
+  const selectNone = () => onChange([]);
+
+  const handleManualAdd = () => {
+    const projects = manualValue.split(',').map(p => p.trim()).filter(Boolean);
+    if (projects.length > 0) {
+      onChange([...new Set([...selectedProjects, ...projects])]);
+      setManualValue('');
+      setShowManualInput(false);
+    }
+  };
+
+  const displayText = selectedProjects.length === 0
+    ? 'Select projects...'
+    : selectedProjects.length === 1
+      ? selectedProjects[0]
+      : `${selectedProjects.length} projects selected`;
+
+  return (
+    <div ref={dropdownRef} className="relative">
+      {/* Selected projects display / trigger button */}
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="sidebar-input text-sm w-full text-left flex items-center justify-between min-h-[40px]"
+      >
+        <span className={selectedProjects.length > 0 ? 'text-gold' : 'text-neutral-400'}>
+          {isLoadingProjects ? (
+            <span className="flex items-center gap-2">
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              Loading projects...
+            </span>
+          ) : displayText}
+        </span>
+        <svg
+          className={`w-4 h-4 text-neutral-500 transition-transform flex-shrink-0 ${isOpen ? 'rotate-180' : ''}`}
+          fill="none"
+          stroke="currentColor"
+          viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+        </svg>
+      </button>
+
+      {/* Selected project chips */}
+      {selectedProjects.length > 0 && (
+        <div className="flex flex-wrap gap-1 mt-2">
+          {selectedProjects.map(p => (
+            <span
+              key={p}
+              className="inline-flex items-center gap-1 px-2 py-0.5 text-xs bg-gold/20 text-gold rounded-full border border-gold/30"
+            >
+              {p}
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleProject(p);
+                }}
+                className="hover:text-white"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Dropdown panel */}
+      {isOpen && (
+        <div className="absolute z-50 mt-1 w-full bg-neutral-800 border border-neutral-600 rounded-lg shadow-xl">
+          {/* Search input */}
+          <div className="p-2 border-b border-neutral-700">
+            <input
+              ref={inputRef}
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  if (filteredProjects.length === 1) {
+                    toggleProject(filteredProjects[0].PROJECT_NUMBER);
+                    setSearchTerm('');
+                  }
+                }
+              }}
+              placeholder="Search by number or description..."
+              className="w-full px-2 py-1.5 text-sm bg-neutral-700 border border-neutral-600 rounded text-white placeholder-neutral-400 focus:outline-none focus:border-gold"
+              autoFocus
+            />
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex items-center justify-between px-3 py-2 border-b border-neutral-700 bg-neutral-900/50">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={selectAll} className="text-xs text-gold hover:underline">
+                All
+              </button>
+              <span className="text-neutral-600">|</span>
+              <button type="button" onClick={selectNone} className="text-xs text-neutral-400 hover:text-white hover:underline">
+                None
+              </button>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowManualInput(!showManualInput)}
+              className="text-xs text-neutral-400 hover:text-gold"
+            >
+              + Manual
+            </button>
+          </div>
+
+          {/* Manual entry input */}
+          {showManualInput && (
+            <div className="p-2 border-b border-neutral-700 bg-neutral-900/30">
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={manualValue}
+                  onChange={(e) => setManualValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleManualAdd();
+                    }
+                  }}
+                  placeholder="Enter project numbers..."
+                  className="flex-1 px-2 py-1 text-xs bg-neutral-700 border border-neutral-600 rounded text-white placeholder-neutral-400 focus:outline-none focus:border-gold font-mono"
+                />
+                <button
+                  type="button"
+                  onClick={handleManualAdd}
+                  className="px-2 py-1 text-xs bg-gold text-black rounded hover:bg-gold/80"
+                >
+                  Add
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] text-neutral-500">Comma-separated for multiple</p>
+            </div>
+          )}
+
+          {/* Project list */}
+          <div className="max-h-48 overflow-y-auto py-1">
+            {filteredProjects.length === 0 ? (
+              <div className="px-3 py-2 text-sm text-neutral-400 italic">
+                {projects.length === 0 ? 'No projects available' : 'No matching projects'}
+              </div>
+            ) : (
+              filteredProjects.map(project => (
+                <label
+                  key={project.PROJECT_NUMBER}
+                  className="flex items-start gap-2 px-3 py-2 hover:bg-neutral-700 cursor-pointer"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedProjects.includes(project.PROJECT_NUMBER)}
+                    onChange={() => toggleProject(project.PROJECT_NUMBER)}
+                    className="mt-0.5 w-4 h-4 rounded border-neutral-600 bg-neutral-700 text-gold focus:ring-gold focus:ring-offset-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-mono text-gold">{project.PROJECT_NUMBER}</div>
+                    {project.PROJECT_DESCRIPTION && (
+                      <div className="text-xs text-neutral-400 truncate">{project.PROJECT_DESCRIPTION}</div>
+                    )}
+                  </div>
+                </label>
+              ))
+            )}
+          </div>
+
+          {/* Count footer */}
+          <div className="px-3 py-1.5 text-[10px] text-neutral-500 border-t border-neutral-700 bg-neutral-900/50">
+            {filteredProjects.length} of {projects.length} projects
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, recordCount = 0, filteredCount, isDemo = false, data, mergedData }: SidebarFiltersProps) {
   const [wbsFiltersExpanded, setWbsFiltersExpanded] = useState(false);
+  const [availableProjects, setAvailableProjects] = useState<Project[]>([]);
+  const [isLoadingProjects, setIsLoadingProjects] = useState(false);
+  const [projectsFetched, setProjectsFetched] = useState(false);
   const projectInfo = getProjectInfo(data);
   const activeWBSFilterCount = countActiveWBSFilters(filters.wbsTags || {});
   const totalSelectedValues = countTotalSelectedValues(filters.wbsTags || {});
 
+  // Fetch available projects on mount (once)
+  useEffect(() => {
+    if (projectsFetched) return;
+
+    const loadProjects = async () => {
+      setIsLoadingProjects(true);
+      try {
+        const response = await fetchProjects(undefined, true);
+        if (response.success) {
+          setAvailableProjects(response.projects);
+        }
+      } catch (err) {
+        console.error('Failed to fetch projects:', err);
+      } finally {
+        setIsLoadingProjects(false);
+        setProjectsFetched(true);
+      }
+    };
+
+    loadProjects();
+  }, [projectsFetched]);
+
+  // Parse current filter string to array of project numbers
+  const selectedProjects = useMemo(() => {
+    return filters.projectNumbers
+      .split(',')
+      .map(p => p.trim())
+      .filter(Boolean);
+  }, [filters.projectNumbers]);
+
+  // Handle project selection changes from dropdown
+  const handleProjectSelectionChange = useCallback((projects: string[]) => {
+    onFilterChange({ ...filters, projectNumbers: projects.join(', ') });
+  }, [filters, onFilterChange]);
+
   // Get unique tag values for dropdowns
   const tagOptions = {
+    wbsElement: mergedData ? getUniqueTagValues(mergedData, 'WBS_ELEMENT') : [],
     area: mergedData ? getUniqueTagValues(mergedData, 'AREA') : [],
     phase: mergedData ? getUniqueTagValues(mergedData, 'PHASE') : [],
     dGroup: mergedData ? getUniqueTagValues(mergedData, 'D_GROUP') : [],
@@ -173,10 +451,6 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
     userDefined12: mergedData ? getUniqueTagValues(mergedData, 'USER_DEFINED_12') : [],
     tag23: mergedData ? getUniqueTagValues(mergedData, 'TAG23') : [],
     tag25: mergedData ? getUniqueTagValues(mergedData, 'TAG25') : [],
-  };
-
-  const handleProjectsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    onFilterChange({ ...filters, projectNumbers: e.target.value });
   };
 
   const handleStartMonthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -261,19 +535,18 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
         <h3 className="text-sm font-semibold text-slate-200 uppercase tracking-wide">Query Filters</h3>
       </div>
 
-      {/* Project Numbers */}
+      {/* Project Numbers - Searchable Dropdown */}
       <div className="mb-4">
         <label className="block text-sm font-medium text-slate-400 mb-2">
-          Project Numbers
-          <span className="text-slate-500 text-xs ml-1">(comma-separated)</span>
+          Projects
+          <span className="text-slate-500 text-xs ml-1">(active in last 12 months)</span>
         </label>
-        <textarea
-          value={filters.projectNumbers}
-          onChange={handleProjectsChange}
+        <ProjectSearchDropdown
+          projects={availableProjects}
+          selectedProjects={selectedProjects}
+          onChange={handleProjectSelectionChange}
+          isLoadingProjects={isLoadingProjects}
           onKeyPress={handleKeyPress}
-          placeholder={DEFAULT_PROJECTS}
-          rows={3}
-          className="sidebar-input font-mono text-sm resize-none"
         />
       </div>
 
@@ -337,6 +610,7 @@ export function SidebarFilters({ filters, onFilterChange, onSearch, isLoading, r
 
             {/* Multi-select dropdowns for each tag filter */}
             {([
+              { key: 'wbsElement', label: 'WBS Element', options: tagOptions.wbsElement },
               { key: 'area', label: 'Area', options: tagOptions.area },
               { key: 'phase', label: 'Phase', options: tagOptions.phase },
               { key: 'dGroup', label: 'Discipline', options: tagOptions.dGroup },

@@ -27,6 +27,10 @@ import warnings
 import sys
 from datetime import timedelta
 from typing import Optional, Any, Annotated
+from dotenv import load_dotenv
+
+# Load environment variables from .env (needed for AUTH_ENABLED in app.auth)
+load_dotenv()
 
 # Suppress SSL warnings for corporate proxy environments
 warnings.filterwarnings("ignore", message="Unverified HTTPS request")
@@ -240,7 +244,7 @@ class QueryRequest(BaseModel):
     limit: int = Field(
         default=5000, 
         ge=1, 
-        le=50000,
+        le=100000,
         description="Maximum rows to return"
     )
     
@@ -755,6 +759,7 @@ async def api_cost_data(
     Requires authentication.
     """
     logger.info(f"Cost data request from {current_user.username}: projects={project_numbers}, start={start_month}, district={district_id}")
+    settings = get_settings()
 
     # Parse comma-separated projects into list
     projects = [p.strip() for p in project_numbers.split(",") if p.strip()]
@@ -777,7 +782,7 @@ async def api_cost_data(
             project_numbers=projects,
             start_month=start_month,
             end_month=None,
-            limit=50000
+            limit=settings.max_limit
         )
         result = execute_query(sql, params)
 
@@ -1020,6 +1025,59 @@ def parse_project_numbers(message: str) -> list[str]:
     return list(dict.fromkeys(re.findall(r"\b\d{6}\b", message)))
 
 
+def parse_wbs_element(message: str) -> Optional[str]:
+    lower = message.lower()
+    match = re.search(r"\bwbs[_\s-]*[a-z]*lement\b[:\s]*([a-z0-9.\-]+)", lower)
+    if match:
+        return match.group(1)
+
+    if "wbs" in lower:
+        token_match = re.search(r"\b(\d{5,7}\.\d+)\b", lower)
+        if token_match:
+            return token_match.group(1)
+
+    return None
+
+
+METRIC_FIELDS = {
+    "CE_QTY", "CB_QTY", "CB_MHF", "CB_AMT", "CB_UNIT_COST",
+    "PER_QTY", "PER_PERC_COMP", "PER_MH", "PER_MHF", "PER_MH_GL", "PER_UOM_MH",
+    "PER_PF", "PER_CF", "PER_LEI", "PER_SPEND", "PER_UNIT_COST", "ACTUAL_COST_G_PER_L",
+    "JTD_QTY", "JTD_PERC_COMP", "JTD_MH", "JTD_MHF", "JTD_MH_GL", "JTD_UOM_MH",
+    "JTD_PF", "JTD_CF", "JTD_LEI", "JTD_SPEND", "JTD_UNIT_COST", "JTD_COST_G_PER_L",
+    "FORECAST_REMAINING_QUANTITY", "FORECAST_REMAINING_MHF", "FORECAST_MHF", "FORECAST_REMAINING_MH",
+    "FORECAST_MH", "FORECAST_MH_G_PER_L", "FORECAST_REMAINING_PF", "FORECAST_PF",
+    "FORECAST_REMAINING_CF", "FORECAST_CF", "FORECAST_REMAINING_LEI", "FORECAST_LEI",
+    "FORECAST_REMAINING_UNIT_COST", "FORECAST_UNIT_COST", "FORECAST_REMAINING_AMOUNT",
+    "FORECAST_AMOUNT", "FORECAST_AMOUNT_G_PER_L", "FORECAST_CHANGE", "SL_VARIANCE",
+}
+
+
+def parse_metric_field(message: str) -> Optional[str]:
+    upper = message.upper()
+    field_match = re.search(r"\b([A-Z_]{3,})\b", upper)
+    if field_match and field_match.group(1) in METRIC_FIELDS:
+        return field_match.group(1)
+
+    lower = message.lower()
+    alias_map = {
+        "cb amt": "CB_AMT",
+        "cb_amts": "CB_AMT",
+        "current budget": "CB_AMT",
+        "budget": "CB_AMT",
+        "jtd spend": "JTD_SPEND",
+        "per spend": "PER_SPEND",
+        "period spend": "PER_SPEND",
+        "variance": "SL_VARIANCE",
+        "actual cost g/l": "ACTUAL_COST_G_PER_L",
+        "jtd cost g/l": "JTD_COST_G_PER_L",
+    }
+    for needle, metric in alias_map.items():
+        if needle in lower:
+            return metric
+
+    return None
+
 def parse_date_range(message: str) -> Optional[dict[str, str]]:
     lower = message.lower()
 
@@ -1139,6 +1197,87 @@ def _apply_date_filter(rows: list[dict], date_range: Optional[dict[str, str]]) -
     return filtered
 
 
+def _metric_is_cumulative(metric: str) -> bool:
+    return metric.startswith("JTD_") or metric.startswith("CB_") or metric.startswith("CE_") or metric.startswith("FORECAST_")
+
+
+def compute_metric_for_wbs(rows: list[dict], wbs_element: str, metric: str, date_range: Optional[dict[str, str]]) -> dict[str, Any]:
+    scoped = [r for r in rows if str(r.get("WBS_ELEMENT") or "") == wbs_element]
+    scoped = _apply_date_filter(scoped, date_range)
+    if not scoped:
+        return {"value": None, "period": None, "rowCount": 0}
+
+    periods = {str(r.get("FISCAL_YEAR_MONTH_NO") or "") for r in scoped if r.get("FISCAL_YEAR_MONTH_NO") is not None}
+    latest_period = max(periods) if periods else None
+
+    if _metric_is_cumulative(metric):
+        if latest_period:
+            period_rows = [r for r in scoped if str(r.get("FISCAL_YEAR_MONTH_NO") or "") == latest_period]
+        else:
+            period_rows = scoped
+        value = sum(_coerce_float(r.get(metric)) for r in period_rows)
+        return {"value": value, "period": latest_period, "rowCount": len(period_rows)}
+
+    value = sum(_coerce_float(r.get(metric)) for r in scoped)
+    return {"value": value, "period": latest_period, "rowCount": len(scoped)}
+
+
+def format_metric_value(metric: str, value: float) -> str:
+    metric_upper = metric.upper()
+    if any(token in metric_upper for token in ["SPEND", "AMT", "COST", "FORECAST", "VARIANCE"]):
+        return f"${value:,.2f}"
+    if "PERC" in metric_upper:
+        return f"{value:,.2f}%"
+    return f"{value:,.2f}"
+
+
+def format_period_yyyymm(period: str) -> str:
+    if len(period) == 6:
+        return f"{period[:4]}-{period[4:]}"
+    return period
+
+
+def compute_trend_series(rows: list[dict], metric: str, date_range: Optional[dict[str, str]]) -> list[dict[str, Any]]:
+    scoped = _apply_date_filter(rows, date_range)
+    top_rows = _root_rows(scoped)
+    period_map: dict[str, float] = {}
+    for r in top_rows:
+        period = str(r.get("FISCAL_YEAR_MONTH_NO") or "")
+        if not period:
+            continue
+        period_map[period] = period_map.get(period, 0.0) + _coerce_float(r.get(metric))
+    return [{"period": p, "value": period_map[p]} for p in sorted(period_map.keys())]
+
+
+def summarize_trend(series: list[dict[str, Any]], metric: str) -> str:
+    if not series:
+        return ""
+    start = series[0]
+    end = series[-1]
+    start_val = float(start["value"])
+    end_val = float(end["value"])
+    change = end_val - start_val
+    pct_change = None
+    if start_val != 0:
+        pct_change = (change / abs(start_val)) * 100.0
+
+    peak = max(series, key=lambda x: x["value"])
+    low = min(series, key=lambda x: x["value"])
+
+    start_label = format_period_yyyymm(str(start["period"]))
+    end_label = format_period_yyyymm(str(end["period"]))
+    peak_label = format_period_yyyymm(str(peak["period"]))
+    low_label = format_period_yyyymm(str(low["period"]))
+
+    change_text = format_metric_value(metric, change)
+    if pct_change is not None:
+        change_text = f"{change_text} ({pct_change:+.1f}%)"
+
+    return (
+        f"From {start_label} to {end_label}, {metric} changed by {change_text}. "
+        f"Peak was {format_metric_value(metric, float(peak['value']))} in {peak_label}; "
+        f"low was {format_metric_value(metric, float(low['value']))} in {low_label}."
+    )
 def build_data_context(
     rows: list[dict],
     query_type: str,
@@ -1326,6 +1465,44 @@ def merge_cost_with_wbs(cost_rows: list[dict], wbs_rows: list[dict]) -> list[dic
     return merged
 
 
+def apply_wbs_tag_filters(
+    rows: list[dict],
+    wbs_tags: Optional[dict[str, list[str]]]
+) -> list[dict]:
+    """Apply WBS tag filters from the UI to merged rows."""
+    if not wbs_tags:
+        return rows
+
+    field_map = {
+        "wbsElement": "WBS_ELEMENT",
+        "area": "AREA",
+        "phase": "PHASE",
+        "dGroup": "D_GROUP",
+        "accountCode": "ACCOUNT_CODE",
+        "userDefined7": "USER_DEFINED_7",
+        "districtSpecificTag16": "DISTRICT_SPECIFIC_TAG_16",
+        "districtSpecificTag19": "DISTRICT_SPECIFIC_TAG_19",
+        "userDefined12": "USER_DEFINED_12",
+        "tag23": "TAG23",
+        "tag25": "TAG25",
+    }
+
+    filtered = rows
+    for filter_key, values in wbs_tags.items():
+        if not values:
+            continue
+        row_key = field_map.get(filter_key)
+        if not row_key:
+            continue
+        value_set = {str(v) for v in values}
+        filtered = [
+            r for r in filtered
+            if r.get(row_key) is not None and str(r.get(row_key)) in value_set
+        ]
+
+    return filtered
+
+
 def get_system_prompt(data_context: str, filter_hints: Optional[ChatFilterHints], user_query: str) -> str:
     """Build the system prompt with data context."""
     hints_json = json.dumps(filter_hints.dict() if filter_hints else {}, indent=2)
@@ -1340,13 +1517,25 @@ def get_system_prompt(data_context: str, filter_hints: Optional[ChatFilterHints]
 ## Available Data Fields
 
 When the user asks for breakdowns or groupings, the following fields are available:
+- **WBS_ELEMENT:** WBS element identifier
 - **D_GROUP (Discipline):** Engineering disciplines like STRUCTURES, CIVIL, ELECTRICAL, MECHANICAL, PIPING, INSTRUMENTATION
 - **USER_DEFINED_7 (Firm):** Vendor/contractor/firm names
 - **AREA:** Project area designations
 - **PHASE:** Project phases
 - **ACCOUNT_CODE:** Cost account codes
+- **DISTRICT_SPECIFIC_TAG_16 / DISTRICT_SPECIFIC_TAG_19 / USER_DEFINED_12 / TAG23 / TAG25:** Additional filtering tags
 
 If the user asks for a breakdown "by discipline" or "by firm", the context data above includes that breakdown.
+
+## Available Metric Fields (Examples)
+The following metric fields are valid for charts and analysis. Treat exact field names as valid and do not ask for clarification.
+- **PER_SPEND**, **JTD_SPEND**, **CB_AMT**, **SL_VARIANCE**
+- **PER_MH**, **JTD_MH**, **PER_PERC_COMP**, **JTD_PERC_COMP**
+- **ACTUAL_COST_G_PER_L**, **JTD_COST_G_PER_L**
+- **FORECAST_AMOUNT**, **FORECAST_CHANGE**, **FORECAST_AMOUNT_G_PER_L**
+- **CE_QTY**, **CB_QTY**, **PER_QTY**, **JTD_QTY**
+
+If the user references any exact field name present in the data context, treat it as a valid metric.
 
 ## Response Format Guidelines
 
@@ -1399,11 +1588,13 @@ Return a single JSON object with these fields:
 
 If the question requests a chart or visualization, set "chart_request" to:
 {{
-  "type": "spend-trend" | "earned-value" | "project-comparison" | "budget-pie" | "variance",
+  "type": "spend-trend" | "earned-value" | "project-comparison" | "budget-pie" | "variance" | "metric-trend",
   "metric": string | null,
   "groupBy": string | null,
   "projects": string[] | null,
-  "dateRange": {{ "start": "YYYYMM", "end": "YYYYMM" }} | null
+  "dateRange": {{ "start": "YYYYMM", "end": "YYYYMM" }} | null,
+  "tags": {{ "wbsElement": string[], "area": string[], "phase": string[], "dGroup": string[], "accountCode": string[], "userDefined7": string[], "districtSpecificTag16": string[], "districtSpecificTag19": string[], "userDefined12": string[], "tag23": string[], "tag25": string[] }} | null,
+  "style": "line" | "bar" | "stacked" | "combo" | null
 }}
 
 Never include any text outside the JSON object.
@@ -1503,6 +1694,37 @@ async def api_chat(
         wbs_result = execute_query(wbs_sql, wbs_params)
 
         merged_rows = merge_cost_with_wbs(cost_result["rows"], wbs_result["rows"])
+        if chat_request.filter_hints and chat_request.filter_hints.wbs_tags:
+            merged_rows = apply_wbs_tag_filters(merged_rows, chat_request.filter_hints.wbs_tags)
+
+        wbs_element = parse_wbs_element(chat_request.message)
+        metric_field = parse_metric_field(chat_request.message)
+        if wbs_element and metric_field:
+            metric_result = compute_metric_for_wbs(merged_rows, wbs_element, metric_field, date_range)
+            if metric_result["value"] is None:
+                return ChatResponse(
+                    success=True,
+                    answer=f"No data found for WBS_ELEMENT {wbs_element} in the selected scope.",
+                    confidence="medium",
+                    needs_clarification=False,
+                    clarifying_question=None,
+                    data_coverage={"rowCount": 0, "projectCount": 0, "periodCount": 0},
+                    chart_request=None,
+                )
+
+            value = metric_result["value"]
+            period = metric_result["period"]
+            period_note = f" (latest period {period})" if period and _metric_is_cumulative(metric_field) else ""
+            formatted_value = format_metric_value(metric_field, value)
+            return ChatResponse(
+                success=True,
+                answer=f"{metric_field} for WBS_ELEMENT {wbs_element}{period_note}: {formatted_value}",
+                confidence="high",
+                needs_clarification=False,
+                clarifying_question=None,
+                data_coverage={"rowCount": metric_result['rowCount'], "projectCount": 1, "periodCount": 1 if period else 0},
+                chart_request=None
+            )
         query_type = classify_query_type(chat_request.message)
 
         exclude_current = chat_request.context_prefs.exclude_current_month if chat_request.context_prefs else False
@@ -1554,6 +1776,23 @@ async def api_chat(
         needs_clarification = bool(parsed.get("needs_clarification"))
         clarifying_question = parsed.get("clarifying_question")
         answer = parsed.get("answer") or ""
+        chart_request = parsed.get("chart_request") if isinstance(parsed.get("chart_request"), dict) else None
+
+        if chart_request and chart_request.get("metric") and needs_clarification:
+            needs_clarification = False
+            if clarifying_question and "metric" in str(clarifying_question).lower():
+                clarifying_question = None
+        if chart_request and chart_request.get("metric") and confidence == "low":
+            confidence = "medium"
+        if chart_request and (not answer or not answer.strip()):
+            metric = chart_request.get("metric") or parse_metric_field(chat_request.message) or "PER_SPEND"
+            series = compute_trend_series(merged_rows, metric, date_range)
+            summary = summarize_trend(series, metric)
+            if summary:
+                answer = summary
+                needs_clarification = False
+                if confidence == "low":
+                    confidence = "medium"
 
         if confidence == "low" or needs_clarification:
             answer = ""
@@ -1568,7 +1807,7 @@ async def api_chat(
             needs_clarification=needs_clarification,
             clarifying_question=clarifying_question,
             data_coverage=coverage,
-            chart_request=parsed.get("chart_request")
+            chart_request=chart_request or parsed.get("chart_request")
         )
 
     except Exception as e:

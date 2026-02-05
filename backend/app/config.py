@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:5500,http://127.0.0.1:5500"
     
     # Query limits
-    max_limit: int = 50000
+    max_limit: int = 100000
     default_limit: int = 5000
     max_projects: int = 50
     

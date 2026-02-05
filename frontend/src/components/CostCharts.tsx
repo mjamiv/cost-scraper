@@ -11,12 +11,13 @@ import {
   ResponsiveContainer,
   TooltipProps,
 } from 'recharts';
-import { CostDataRow } from '../api/types';
+import { CostDataRow, WBSTagFilters } from '../api/types';
 import { ChartRequest } from '../api/costDataApi';
 
 interface CostChartsProps {
   data: CostDataRow[];
   chartRequest?: ChartRequest | null;
+  activeFilters?: WBSTagFilters;
 }
 
 interface ChartDataPoint {
@@ -96,6 +97,36 @@ function filterByDateRange(data: CostDataRow[], dateRange?: { start?: string; en
   });
 }
 
+function filterByTags(data: CostDataRow[], tags?: Record<string, string[]>): CostDataRow[] {
+  if (!tags) return data;
+  const fieldMap: Record<keyof WBSTagFilters, string> = {
+    wbsElement: 'WBS_ELEMENT',
+    area: 'AREA',
+    phase: 'PHASE',
+    dGroup: 'D_GROUP',
+    accountCode: 'ACCOUNT_CODE',
+    userDefined7: 'USER_DEFINED_7',
+    districtSpecificTag16: 'DISTRICT_SPECIFIC_TAG_16',
+    districtSpecificTag19: 'DISTRICT_SPECIFIC_TAG_19',
+    userDefined12: 'USER_DEFINED_12',
+    tag23: 'TAG23',
+    tag25: 'TAG25',
+  };
+
+  let filtered = data;
+  (Object.entries(tags) as [keyof WBSTagFilters, string[]][]).forEach(([key, values]) => {
+    if (!values || values.length === 0) return;
+    const rowKey = fieldMap[key];
+    if (!rowKey) return;
+    const valueSet = new Set(values.map(v => String(v)));
+    filtered = filtered.filter(row => {
+      const rowValue = (row as Record<string, unknown>)[rowKey];
+      return rowValue != null && valueSet.has(String(rowValue));
+    });
+  });
+  return filtered;
+}
+
 // Custom dark tooltip component
 function CustomTooltip({ active, payload, label }: TooltipProps<number, string>) {
   if (!active || !payload || payload.length === 0) return null;
@@ -169,14 +200,16 @@ function KpiCard({
   );
 }
 
-export function CostCharts({ data, chartRequest }: CostChartsProps) {
+export function CostCharts({ data, chartRequest, activeFilters }: CostChartsProps) {
   const [dateRange, setDateRange] = useState<[number, number]>([0, 100]);
 
   const allChartData = useMemo<ChartDataPoint[]>(() => {
     if (!data.length) return [];
 
     const scopedData = filterByProjects(data, chartRequest?.projects);
-    const filteredData = filterByDateRange(scopedData, chartRequest?.dateRange);
+    const tagFilters = chartRequest?.tags || activeFilters;
+    const taggedData = filterByTags(scopedData, tagFilters);
+    const filteredData = filterByDateRange(taggedData, chartRequest?.dateRange);
 
     // Check if there are any ROOT-level rows (empty CBS_HIERARCHY)
     // Root rows contain the project totals - children are already summed into these
@@ -300,7 +333,7 @@ export function CostCharts({ data, chartRequest }: CostChartsProps) {
         };
       });
     }
-  }, [data, chartRequest]);
+  }, [data, chartRequest, activeFilters]);
 
   const chartData = useMemo(() => {
     if (!allChartData.length) return [];

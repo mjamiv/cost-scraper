@@ -129,11 +129,13 @@ export interface ChatContextPrefs {
 }
 
 export interface ChartRequest {
-  type: 'spend-trend' | 'earned-value' | 'project-comparison' | 'budget-pie' | 'variance';
+  type: 'spend-trend' | 'earned-value' | 'project-comparison' | 'budget-pie' | 'variance' | 'metric-trend';
   metric?: string | null;
   groupBy?: string | null;
   projects?: string[] | null;
   dateRange?: { start?: string; end?: string } | null;
+  tags?: Record<string, string[]> | null;
+  style?: 'line' | 'bar' | 'stacked' | 'combo' | null;
 }
 
 export interface ChatRequest {

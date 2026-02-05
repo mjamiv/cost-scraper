@@ -15,7 +15,7 @@ import {
   BarChart,
   TooltipProps,
 } from 'recharts';
-import { CostDataRow } from '../api/types';
+import { CostDataRow, WBSTagFilters } from '../api/types';
 import { excludeCurrentMonth } from '../utils/llmDataFormatter';
 
 // Brand colors - gold/black theme
@@ -86,6 +86,10 @@ interface ChartProps {
   dateRange?: DateRange;
   projects?: string[];
   excludeCurrentMonth?: boolean;
+  tags?: Record<string, string[]>;
+  metric?: string | null;
+  groupBy?: string | null;
+  style?: 'line' | 'bar' | 'stacked' | 'combo' | null;
 }
 
 /**
@@ -112,16 +116,110 @@ function applyExclusions(data: CostDataRow[], excludeCurrent?: boolean): CostDat
   return excludeCurrent ? excludeCurrentMonth(data) : data;
 }
 
+function filterByTags(data: CostDataRow[], tags?: Record<string, string[]>): CostDataRow[] {
+  if (!tags) return data;
+  const fieldMap: Record<keyof WBSTagFilters, string> = {
+    wbsElement: 'WBS_ELEMENT',
+    area: 'AREA',
+    phase: 'PHASE',
+    dGroup: 'D_GROUP',
+    accountCode: 'ACCOUNT_CODE',
+    userDefined7: 'USER_DEFINED_7',
+    districtSpecificTag16: 'DISTRICT_SPECIFIC_TAG_16',
+    districtSpecificTag19: 'DISTRICT_SPECIFIC_TAG_19',
+    userDefined12: 'USER_DEFINED_12',
+    tag23: 'TAG23',
+    tag25: 'TAG25',
+  };
+
+  let filtered = data;
+  (Object.entries(tags) as [keyof WBSTagFilters, string[]][]).forEach(([key, values]) => {
+    if (!values || values.length === 0) return;
+    const rowKey = fieldMap[key];
+    if (!rowKey) return;
+    const valueSet = new Set(values.map(v => String(v)));
+    filtered = filtered.filter(row => {
+      const rowValue = (row as Record<string, unknown>)[rowKey];
+      return rowValue != null && valueSet.has(String(rowValue));
+    });
+  });
+  return filtered;
+}
+
+const METRIC_DEFS: Record<string, { label: string; perKey?: string; jtdKey?: string }> = {
+  CE_QTY: { label: 'Current Estimate Qty' },
+  CB_QTY: { label: 'Current Budget Qty' },
+  CB_MHF: { label: 'Current Budget MHF' },
+  CB_AMT: { label: 'Current Budget (CB)' },
+  CB_UNIT_COST: { label: 'Current Budget Unit Cost' },
+
+  PER_QTY: { label: 'Period Qty' },
+  PER_PERC_COMP: { label: 'Period % Complete' },
+  PER_MH: { label: 'Period Manhours', perKey: 'PER_MH', jtdKey: 'JTD_MH' },
+  PER_MHF: { label: 'Period MHF' },
+  PER_MH_GL: { label: 'Period MH G/L' },
+  PER_UOM_MH: { label: 'Period UOM per MH' },
+  PER_PF: { label: 'Period PF' },
+  PER_CF: { label: 'Period CF' },
+  PER_LEI: { label: 'Period LEI' },
+  PER_SPEND: { label: 'Period Spend', perKey: 'PER_SPEND', jtdKey: 'JTD_SPEND' },
+  PER_UNIT_COST: { label: 'Period Unit Cost' },
+  ACTUAL_COST_G_PER_L: { label: 'Actual Cost / G/L' },
+
+  JTD_QTY: { label: 'JTD Qty' },
+  JTD_PERC_COMP: { label: 'JTD % Complete' },
+  JTD_MH: { label: 'JTD Manhours', perKey: 'PER_MH', jtdKey: 'JTD_MH' },
+  JTD_MHF: { label: 'JTD MHF' },
+  JTD_MH_GL: { label: 'JTD MH G/L' },
+  JTD_UOM_MH: { label: 'JTD UOM per MH' },
+  JTD_PF: { label: 'JTD PF' },
+  JTD_CF: { label: 'JTD CF' },
+  JTD_LEI: { label: 'JTD LEI' },
+  JTD_SPEND: { label: 'JTD Spend', perKey: 'PER_SPEND', jtdKey: 'JTD_SPEND' },
+  JTD_UNIT_COST: { label: 'JTD Unit Cost' },
+  JTD_COST_G_PER_L: { label: 'JTD Cost / G/L' },
+
+  FORECAST_REMAINING_QUANTITY: { label: 'Forecast Remaining Qty' },
+  FORECAST_REMAINING_MHF: { label: 'Forecast Remaining MHF' },
+  FORECAST_MHF: { label: 'Forecast MHF' },
+  FORECAST_REMAINING_MH: { label: 'Forecast Remaining MH' },
+  FORECAST_MH: { label: 'Forecast MH' },
+  FORECAST_MH_G_PER_L: { label: 'Forecast MH G/L' },
+  FORECAST_REMAINING_PF: { label: 'Forecast Remaining PF' },
+  FORECAST_PF: { label: 'Forecast PF' },
+  FORECAST_REMAINING_CF: { label: 'Forecast Remaining CF' },
+  FORECAST_CF: { label: 'Forecast CF' },
+  FORECAST_REMAINING_LEI: { label: 'Forecast Remaining LEI' },
+  FORECAST_LEI: { label: 'Forecast LEI' },
+  FORECAST_REMAINING_UNIT_COST: { label: 'Forecast Remaining Unit Cost' },
+  FORECAST_UNIT_COST: { label: 'Forecast Unit Cost' },
+  FORECAST_REMAINING_AMOUNT: { label: 'Forecast Remaining Amount' },
+  FORECAST_AMOUNT: { label: 'Forecast Amount' },
+  FORECAST_AMOUNT_G_PER_L: { label: 'Forecast Amount G/L' },
+  FORECAST_CHANGE: { label: 'Forecast Change' },
+  SL_VARIANCE: { label: 'Schedule Variance' },
+};
+
+function getMetricKey(metric?: string | null): string {
+  if (!metric) return 'PER_SPEND';
+  return METRIC_DEFS[metric] ? metric : 'PER_SPEND';
+}
+
+function getMetricLabel(metric?: string | null): string {
+  return METRIC_DEFS[getMetricKey(metric)]?.label || 'Period Spend';
+}
+
 /**
  * Spend Trend Chart - Bar + Line combo showing period spend and cumulative
  */
-export function SpendTrendChart({ data, title = 'Spend Trend', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function SpendTrendChart({ data, title = 'Spend Trend', dateRange, projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     // Filter by date range, projects, and filter to ROOT-level rows only
     let filteredData = applyExclusions(data, exclude);
     filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByTags(filteredData, tags);
     filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
@@ -157,7 +255,7 @@ export function SpendTrendChart({ data, title = 'Spend Trend', dateRange, projec
         return { period: formatPeriodLabel(period), spend, cumulative: d.jtdSpend };
       });
     }
-  }, [data]);
+  }, [data, dateRange, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -215,13 +313,14 @@ export function SpendTrendChart({ data, title = 'Spend Trend', dateRange, projec
 /**
  * Earned Value Chart - Shows Budget, Actual Spend, and Earned Value over time
  */
-export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRange, projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     // Filter by date range, projects, and filter to ROOT-level rows only
     let filteredData = applyExclusions(data, exclude);
     filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByTags(filteredData, tags);
     filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
@@ -254,7 +353,7 @@ export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRa
         budget: d.budget,
       };
     });
-  }, [data, dateRange]);
+  }, [data, dateRange, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -310,14 +409,14 @@ export function EarnedValueChart({ data, title = 'Earned Value Analysis', dateRa
 /**
  * Project Comparison Chart - Horizontal bar chart comparing projects
  */
-export function ProjectComparisonChart({ data, title = 'Project Comparison', projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function ProjectComparisonChart({ data, title = 'Project Comparison', projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     const projectMap = new Map<string, { budget: number; jtdSpend: number; forecast: number }>();
 
     // Filter by projects and root rows only
-    const filteredData = applyExclusions(filterByProjects(data, projects), exclude);
+    const filteredData = applyExclusions(filterByProjects(filterByTags(data, tags), projects), exclude);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
@@ -341,7 +440,7 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison', pro
       }))
       .sort((a, b) => b.budget - a.budget)
       .slice(0, 8);
-  }, [data]);
+  }, [data, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -387,14 +486,14 @@ export function ProjectComparisonChart({ data, title = 'Project Comparison', pro
 /**
  * Budget vs Forecast Pie Chart
  */
-export function BudgetPieChart({ data, title = 'Budget Allocation', projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function BudgetPieChart({ data, title = 'Budget Allocation', projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     const projectMap = new Map<string, number>();
 
     // Filter by projects and root rows only
-    const filteredData = applyExclusions(filterByProjects(data, projects), exclude);
+    const filteredData = applyExclusions(filterByProjects(filterByTags(data, tags), projects), exclude);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
       return !cbs || cbs.trim() === '' || cbs === '-';
@@ -410,7 +509,7 @@ export function BudgetPieChart({ data, title = 'Budget Allocation', projects, ex
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value)
       .slice(0, 6);
-  }, [data]);
+  }, [data, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -466,11 +565,11 @@ export function BudgetPieChart({ data, title = 'Budget Allocation', projects, ex
 /**
  * Variance Chart - Shows favorable/unfavorable variances
  */
-export function VarianceChart({ data, title = 'Top Variances', projects, dateRange, excludeCurrentMonth: exclude }: ChartProps) {
+export function VarianceChart({ data, title = 'Top Variances', projects, dateRange, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    const scoped = filterByDateRange(applyExclusions(filterByProjects(data, projects), exclude), dateRange);
+    const scoped = filterByDateRange(applyExclusions(filterByProjects(filterByTags(data, tags), projects), exclude), dateRange);
     return scoped
       .map(row => ({
         name: `${row.PROJECT_NUMBER}-${(row.CBS_HIERARCHY || '').split('.').slice(0, 2).join('.')}`,
@@ -493,7 +592,7 @@ export function VarianceChart({ data, title = 'Top Variances', projects, dateRan
       )
       .filter((item, index, self) => self.findIndex(t => t.name === item.name) === index)
       .sort((a, b) => a.variance - b.variance);
-  }, [data]);
+  }, [data, dateRange, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -550,17 +649,18 @@ export function VarianceChart({ data, title = 'Top Variances', projects, dateRan
   );
 }
 
-export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value' | 'manhours-trend' | 'fte-trend' | 'discipline-breakdown';
+export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value' | 'manhours-trend' | 'fte-trend' | 'discipline-breakdown' | 'metric-trend';
 
 /**
  * Manhours Trend Chart - Bar + Line combo showing period manhours and cumulative
  */
-export function ManhoursTrendChart({ data, title = 'Manhours Trend', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function ManhoursTrendChart({ data, title = 'Manhours Trend', dateRange, projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     let filteredData = applyExclusions(data, exclude);
     filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByTags(filteredData, tags);
     filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
@@ -583,7 +683,7 @@ export function ManhoursTrendChart({ data, title = 'Manhours Trend', dateRange, 
       cumulative += mh;
       return { period: formatPeriodLabel(period), manhours: mh, cumulative };
     });
-  }, [data, dateRange]);
+  }, [data, dateRange, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -641,12 +741,13 @@ export function ManhoursTrendChart({ data, title = 'Manhours Trend', dateRange, 
 /**
  * FTE Trend Chart - Bar for FTE count with avg rate overlay
  */
-export function FTETrendChart({ data, title = 'FTE Trend', dateRange, projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function FTETrendChart({ data, title = 'FTE Trend', dateRange, projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
     let filteredData = applyExclusions(data, exclude);
     filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByTags(filteredData, tags);
     filteredData = filterByDateRange(filteredData, dateRange);
     const topLevelRows = filteredData.filter((row) => {
       const cbs = row.CBS_HIERARCHY;
@@ -681,7 +782,7 @@ export function FTETrendChart({ data, title = 'FTE Trend', dateRange, projects, 
       const avgRate = d.mh > 0 ? d.spend / d.mh : 0;
       return { period: formatPeriodLabel(period), fte, avgRate, manhours: d.mh };
     });
-  }, [data, dateRange]);
+  }, [data, dateRange, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -745,11 +846,11 @@ export function FTETrendChart({ data, title = 'FTE Trend', dateRange, projects, 
 /**
  * Discipline Breakdown Chart - Horizontal bar chart by D_GROUP
  */
-export function DisciplineBreakdownChart({ data, title = 'By Discipline', projects, excludeCurrentMonth: exclude }: ChartProps) {
+export function DisciplineBreakdownChart({ data, title = 'By Discipline', projects, excludeCurrentMonth: exclude, tags }: ChartProps) {
   const chartData = useMemo(() => {
     if (!data.length) return [];
 
-    const filteredData = applyExclusions(filterByProjects(data, projects), exclude);
+    const filteredData = applyExclusions(filterByProjects(filterByTags(data, tags), projects), exclude);
     const disciplineMap = new Map<string, { jtdSpend: number; periodSpend: number }>();
 
     for (const row of filteredData) {
@@ -770,7 +871,7 @@ export function DisciplineBreakdownChart({ data, title = 'By Discipline', projec
       }))
       .sort((a, b) => b.jtdSpend - a.jtdSpend)
       .slice(0, 10);
-  }, [data]);
+  }, [data, exclude, projects, tags]);
 
   if (!chartData.length) return null;
 
@@ -813,6 +914,153 @@ export function DisciplineBreakdownChart({ data, title = 'By Discipline', projec
   );
 }
 
+/**
+ * Generic metric trend chart that can plot any metric over time.
+ */
+export function MetricTrendChart({
+  data,
+  title,
+  dateRange,
+  projects,
+  excludeCurrentMonth: exclude,
+  metric,
+  groupBy,
+  style,
+  tags,
+}: ChartProps) {
+  const metricKey = getMetricKey(metric);
+  const metricLabel = getMetricLabel(metric);
+  const perKey = METRIC_DEFS[metricKey]?.perKey;
+  const jtdKey = METRIC_DEFS[metricKey]?.jtdKey;
+
+  const chartData = useMemo(() => {
+    if (!data.length) return [];
+    let filteredData = applyExclusions(data, exclude);
+    filteredData = filterByProjects(filteredData, projects);
+    filteredData = filterByTags(filteredData, tags);
+    filteredData = filterByDateRange(filteredData, dateRange);
+
+    const topLevelRows = filteredData.filter((row) => {
+      const cbs = row.CBS_HIERARCHY;
+      return !cbs || cbs.trim() === '' || cbs === '-';
+    });
+
+    if (style === 'stacked' && groupBy) {
+      const groups = new Map<string, Map<string, number>>();
+      for (const row of topLevelRows) {
+        const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+        const groupVal = String((row as Record<string, unknown>)[groupBy] || '(No Value)');
+        const value = parseFloat(String((row as Record<string, unknown>)[metricKey])) || 0;
+        if (!groups.has(period)) groups.set(period, new Map());
+        const periodMap = groups.get(period)!;
+        periodMap.set(groupVal, (periodMap.get(groupVal) || 0) + value);
+      }
+
+      const periods = Array.from(groups.keys()).sort();
+      const seriesKeys = new Set<string>();
+      groups.forEach(map => map.forEach((_, k) => seriesKeys.add(k)));
+      const keys = Array.from(seriesKeys).slice(0, 8);
+
+      return periods.map(period => {
+        const row: Record<string, number | string> = { period: formatPeriodLabel(period) };
+        const periodMap = groups.get(period)!;
+        keys.forEach(k => {
+          row[k] = periodMap.get(k) || 0;
+        });
+        return row;
+      });
+    }
+
+    const periodMap = new Map<string, { value: number; per: number; jtd: number }>();
+    for (const row of topLevelRows) {
+      const period = String(row.FISCAL_YEAR_MONTH_NO || '');
+      const value = parseFloat(String((row as Record<string, unknown>)[metricKey])) || 0;
+      const per = perKey ? parseFloat(String((row as Record<string, unknown>)[perKey])) || 0 : 0;
+      const jtd = jtdKey ? parseFloat(String((row as Record<string, unknown>)[jtdKey])) || 0 : 0;
+      const existing = periodMap.get(period) || { value: 0, per: 0, jtd: 0 };
+      existing.value += value;
+      existing.per += per;
+      existing.jtd += jtd;
+      periodMap.set(period, existing);
+    }
+
+    let cumulative = 0;
+    return Array.from(periodMap.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([period, values]) => {
+        cumulative += values.value;
+        return {
+          period: formatPeriodLabel(period),
+          value: values.value,
+          cumulative,
+          per: values.per,
+          jtd: values.jtd,
+        };
+      });
+  }, [data, dateRange, exclude, groupBy, metricKey, perKey, jtdKey, projects, style, tags]);
+
+  if (!chartData.length) return null;
+
+  const chartTitle = title || `${metricLabel} Trend`;
+  const renderStacked = style === 'stacked' && groupBy;
+  const renderCombo = style === 'combo' && perKey && jtdKey;
+
+  return (
+    <div className="chat-chart">
+      <div className="chat-chart-header">{chartTitle}</div>
+      <div className="chat-chart-body">
+        <ResponsiveContainer width="100%" height={280}>
+          <ComposedChart data={chartData} margin={{ top: 15, right: 45, left: 5, bottom: 30 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#262626" vertical={false} />
+            <XAxis
+              dataKey="period"
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={{ stroke: '#404040' }}
+              angle={-45}
+              textAnchor="end"
+              interval={Math.max(0, Math.floor(chartData.length / 10))}
+              dy={5}
+            />
+            <YAxis
+              tick={{ fill: '#a3a3a3', fontSize: 11 }}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={formatCurrency}
+              width={70}
+            />
+            <Tooltip content={<DarkTooltip />} />
+            <Legend
+              verticalAlign="top"
+              height={36}
+              iconSize={12}
+              iconType="rect"
+              wrapperStyle={{ fontSize: '12px', paddingBottom: '10px' }}
+            />
+            {!renderStacked && !renderCombo && (style === 'bar') && (
+              <Bar dataKey="value" name={metricLabel} fill={COLORS.gold} radius={[3, 3, 0, 0]} />
+            )}
+            {!renderStacked && !renderCombo && (style === 'line' || !style) && (
+              <Line type="monotone" dataKey="value" name={metricLabel} stroke={COLORS.gold} strokeWidth={2.5} dot={false} />
+            )}
+            {renderCombo && (
+              <>
+                <Bar dataKey="per" name="Period" fill={COLORS.gold} radius={[3, 3, 0, 0]} />
+                <Line type="monotone" dataKey="jtd" name="JTD" stroke={COLORS.purple} strokeWidth={2.5} dot={false} />
+              </>
+            )}
+            {renderStacked && (
+              Object.keys(chartData[0]).filter(k => k !== 'period').map((key, idx) => (
+                <Bar key={key} dataKey={key} stackId="a" fill={PIE_COLORS[idx % PIE_COLORS.length]} />
+              ))
+            )}
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 interface InlineChatChartProps {
   type: ChartType;
   data: CostDataRow[];
@@ -820,29 +1068,47 @@ interface InlineChatChartProps {
   dateRange?: DateRange;
   projects?: string[];
   excludeCurrentMonth?: boolean;
+  tags?: Record<string, string[]>;
+  metric?: string | null;
+  groupBy?: string | null;
+  style?: 'line' | 'bar' | 'stacked' | 'combo' | null;
 }
 
 /**
  * Main component to render inline charts in chat based on type
  */
-export function InlineChatChart({ type, data, title, dateRange, projects, excludeCurrentMonth: exclude }: InlineChatChartProps) {
+export function InlineChatChart({ type, data, title, dateRange, projects, excludeCurrentMonth: exclude, tags, metric, groupBy, style }: InlineChatChartProps) {
   switch (type) {
     case 'spend-trend':
-      return <SpendTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+      return <SpendTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
     case 'project-comparison':
-      return <ProjectComparisonChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} />;
+      return <ProjectComparisonChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
     case 'budget-pie':
-      return <BudgetPieChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} />;
+      return <BudgetPieChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
     case 'variance':
-      return <VarianceChart data={data} title={title} projects={projects} dateRange={dateRange} excludeCurrentMonth={exclude} />;
+      return <VarianceChart data={data} title={title} projects={projects} dateRange={dateRange} excludeCurrentMonth={exclude} tags={tags} />;
     case 'earned-value':
-      return <EarnedValueChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+      return <EarnedValueChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
     case 'manhours-trend':
-      return <ManhoursTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+      return <ManhoursTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
     case 'fte-trend':
-      return <FTETrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} />;
+      return <FTETrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
     case 'discipline-breakdown':
-      return <DisciplineBreakdownChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} />;
+      return <DisciplineBreakdownChart data={data} title={title} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
+    case 'metric-trend':
+      return (
+        <MetricTrendChart
+          data={data}
+          title={title}
+          dateRange={dateRange}
+          projects={projects}
+          excludeCurrentMonth={exclude}
+          tags={tags}
+          metric={metric}
+          groupBy={groupBy}
+          style={style}
+        />
+      );
     default:
       return null;
   }
@@ -909,6 +1175,9 @@ export interface ChartIntent {
     projects?: string[];
   };
   dateRange?: DateRange;
+  metric?: string | null;
+  groupBy?: string | null;
+  style?: 'line' | 'bar' | 'stacked' | 'combo' | null;
 }
 
 /**
@@ -964,6 +1233,7 @@ export function detectChartRequest(message: string): ChartType | null {
     if (lower.includes('discipline')) return 'discipline-breakdown';
     if (lower.includes('compare') || lower.includes('vs')) return 'project-comparison';
     if (lower.includes('progress') || lower.includes('complete')) return 'earned-value';
+    if (detectMetricFromMessage(message)) return 'metric-trend';
     return 'spend-trend'; // Default chart
   }
 
@@ -987,6 +1257,13 @@ export function parseChartFilters(message: string): ChartIntent['filters'] | und
   const lower = message.toLowerCase();
   const filters: ChartIntent['filters'] = {};
 
+  const addTag = (key: keyof WBSTagFilters, value?: string | null) => {
+    if (!value) return;
+    const normalized = value.trim().toUpperCase();
+    if (!normalized) return;
+    filters.tags = { ...filters.tags, [key]: [normalized] };
+  };
+
   // Parse exclusions (e.g., "excluding KIE", "except firm ABC")
   const excludeMatch = lower.match(/(?:exclud|except|without|not including)\s+(?:firm\s+)?(\w+)/i);
   if (excludeMatch) {
@@ -996,14 +1273,46 @@ export function parseChartFilters(message: string): ChartIntent['filters'] | und
   // Parse discipline/D-Group filters
   const disciplineMatch = lower.match(/(?:for|filter by|only)\s+(?:discipline\s+)?(\w+)\s+(?:discipline)?/i);
   if (disciplineMatch) {
-    filters.tags = { ...filters.tags, D_GROUP: [disciplineMatch[1]] };
+    addTag('dGroup', disciplineMatch[1]);
   }
 
   // Parse firm filters
   const firmMatch = lower.match(/(?:for|filter by|only)\s+firm\s+(\w+)/i);
   if (firmMatch) {
-    filters.tags = { ...filters.tags, USER_DEFINED_7: [firmMatch[1].toUpperCase()] };
+    addTag('userDefined7', firmMatch[1]);
   }
+
+  // Parse WBS element filters
+  const wbsMatch = lower.match(/wbs(?:\s+element)?\s+([a-z0-9\.\-]+)/i);
+  if (wbsMatch) {
+    addTag('wbsElement', wbsMatch[1]);
+  }
+
+  // Parse area / phase / account code filters
+  const areaMatch = lower.match(/(?:for|filter by|only)\s+area\s+([a-z0-9\.\-]+)/i);
+  if (areaMatch) addTag('area', areaMatch[1]);
+
+  const phaseMatch = lower.match(/(?:for|filter by|only)\s+phase\s+([a-z0-9\.\-]+)/i);
+  if (phaseMatch) addTag('phase', phaseMatch[1]);
+
+  const accountMatch = lower.match(/account\s+code\s+([a-z0-9\.\-]+)/i);
+  if (accountMatch) addTag('accountCode', accountMatch[1]);
+
+  // Parse other tag fields
+  const tag16Match = lower.match(/(?:district\s+specific\s+tag\s*16|tag\s*16)\s+([a-z0-9\.\-]+)/i);
+  if (tag16Match) addTag('districtSpecificTag16', tag16Match[1]);
+
+  const tag19Match = lower.match(/(?:district\s+specific\s+tag\s*19|tag\s*19)\s+([a-z0-9\.\-]+)/i);
+  if (tag19Match) addTag('districtSpecificTag19', tag19Match[1]);
+
+  const userDefined12Match = lower.match(/user\s*defined\s*12\s+([a-z0-9\.\-]+)/i);
+  if (userDefined12Match) addTag('userDefined12', userDefined12Match[1]);
+
+  const tag23Match = lower.match(/tag\s*23\s+([a-z0-9\.\-]+)/i);
+  if (tag23Match) addTag('tag23', tag23Match[1]);
+
+  const tag25Match = lower.match(/tag\s*25\s+([a-z0-9\.\-]+)/i);
+  if (tag25Match) addTag('tag25', tag25Match[1]);
 
   // Parse project filters
   const projectMatch = lower.match(/project\s+(\d{6})/gi);
@@ -1012,4 +1321,70 @@ export function parseChartFilters(message: string): ChartIntent['filters'] | und
   }
 
   return Object.keys(filters).length > 0 ? filters : undefined;
+}
+
+function detectMetricFromMessage(message: string): string | null {
+  const lower = message.toLowerCase();
+  const normalized = lower.replace(/[_/]/g, ' ').replace(/\s+/g, ' ').trim();
+  const metricMap: Record<string, string> = {
+    'per spend': 'PER_SPEND',
+    'period spend': 'PER_SPEND',
+    'jtd spend': 'JTD_SPEND',
+    'budget': 'CB_AMT',
+    'forecast change': 'FORECAST_CHANGE',
+    'forecast': 'FORECAST_AMOUNT',
+    'variance': 'SL_VARIANCE',
+    'per mh': 'PER_MH',
+    'period mh': 'PER_MH',
+    'jtd mh': 'JTD_MH',
+    'manhours': 'PER_MH',
+    'pf': 'PER_PF',
+    'cf': 'PER_CF',
+    'percent complete': 'JTD_PERC_COMP',
+    'actual cost g/l': 'ACTUAL_COST_G_PER_L',
+    'jtd cost g/l': 'JTD_COST_G_PER_L',
+  };
+
+  for (const [needle, metric] of Object.entries(metricMap)) {
+    if (lower.includes(needle)) {
+      return metric;
+    }
+  }
+
+  for (const key of Object.keys(METRIC_DEFS)) {
+    const keyLower = key.toLowerCase();
+    const keySpaced = keyLower.replace(/_/g, ' ');
+    if (lower.includes(keyLower) || normalized.includes(keySpaced)) {
+      return key;
+    }
+  }
+  return null;
+}
+
+export function parseChartIntent(message: string): ChartIntent {
+  const type = detectChartRequest(message) || 'metric-trend';
+  const filters = parseChartFilters(message);
+  const dateRange = parseDateRange(message);
+  const metric = detectMetricFromMessage(message);
+
+  let style: ChartIntent['style'] = null;
+  if (/\bstack(ed)?\b/.test(message.toLowerCase())) style = 'stacked';
+  else if (/\bbar\b/.test(message.toLowerCase())) style = 'bar';
+  else if (/\bline\b/.test(message.toLowerCase())) style = 'line';
+  else if (/\bcombo\b/.test(message.toLowerCase())) style = 'combo';
+
+  let groupBy: ChartIntent['groupBy'] = null;
+  if (/by discipline|by d\s*group|by d_group/i.test(message)) groupBy = 'D_GROUP';
+  else if (/by firm|by vendor|by contractor/i.test(message)) groupBy = 'USER_DEFINED_7';
+  else if (/by area/i.test(message)) groupBy = 'AREA';
+  else if (/by phase/i.test(message)) groupBy = 'PHASE';
+  else if (/by account/i.test(message)) groupBy = 'ACCOUNT_CODE';
+  else if (/by wbs/i.test(message)) groupBy = 'WBS_ELEMENT';
+  else if (/by tag\s*23/i.test(message)) groupBy = 'TAG23';
+  else if (/by tag\s*25/i.test(message)) groupBy = 'TAG25';
+  else if (/by district\s*tag\s*16|by tag\s*16/i.test(message)) groupBy = 'DISTRICT_SPECIFIC_TAG_16';
+  else if (/by district\s*tag\s*19|by tag\s*19/i.test(message)) groupBy = 'DISTRICT_SPECIFIC_TAG_19';
+  else if (/by user\s*defined\s*12/i.test(message)) groupBy = 'USER_DEFINED_12';
+
+  return { type, filters, dateRange, metric, groupBy, style };
 }

@@ -32,8 +32,8 @@ interface DataTableProps {
 const COLUMN_GROUPS = [
   { id: 'identification', label: 'Identification', columns: ['expander', 'FISCAL_YEAR_MONTH_NO', 'PROJECT_NUMBER', 'LEAD_DISTRICT', 'WBS_ELEMENT', 'CBS_HIERARCHY', 'WBS_DESCRIPTION'], className: 'group-identification' },
   { id: 'budget', label: 'Budget', columns: ['CB_QTY', 'CB_AMT', 'CB_UNIT_COST'], className: 'group-budget' },
-  { id: 'period', label: 'Period', columns: ['PER_QTY', 'PER_PERC_COMP', 'PER_PF', 'PER_CF', 'PER_SPEND'], className: 'group-period' },
-  { id: 'jtd', label: 'JTD', columns: ['JTD_QTY', 'JTD_PERC_COMP', 'JTD_PF', 'JTD_CF', 'JTD_SPEND'], className: 'group-jtd' },
+  { id: 'period', label: 'Period', columns: ['PER_QTY', 'PER_PERC_COMP', 'PER_PF', 'PER_CF', 'PER_SPEND', 'ACTUAL_COST_G_PER_L'], className: 'group-period' },
+  { id: 'jtd', label: 'JTD', columns: ['JTD_QTY', 'JTD_PERC_COMP', 'JTD_PF', 'JTD_CF', 'JTD_SPEND', 'JTD_COST_G_PER_L'], className: 'group-jtd' },
   { id: 'forecast', label: 'Forecast', columns: ['FORECAST_PF', 'FORECAST_CF', 'FORECAST_AMOUNT', 'FORECAST_REMAINING_AMOUNT', 'FORECAST_CHANGE', 'SL_VARIANCE'], className: 'group-forecast' },
   { id: 'revenue', label: 'Revenue', columns: ['MULTIPLIER', 'PER_REVENUE', 'JTD_REVENUE', 'FCST_REVENUE'], className: 'group-revenue' },
 ];
@@ -341,6 +341,15 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         meta: { group: 'period', align: 'right' },
         size: 100,
       },
+      {
+        header: 'Act Cost / G/L',
+        accessorKey: 'ACTUAL_COST_G_PER_L',
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'period', align: 'right' },
+        size: 110,
+      },
 
       // JTD columns
       {
@@ -389,6 +398,15 @@ export function DataTable({ data, isLoading }: DataTableProps) {
         ),
         meta: { group: 'jtd', align: 'right' },
         size: 100,
+      },
+      {
+        header: 'JTD Cost / G/L',
+        accessorKey: 'JTD_COST_G_PER_L',
+        cell: ({ getValue }) => (
+          <span className="text-right tabular-nums block">{formatCurrency(getValue() as number | null)}</span>
+        ),
+        meta: { group: 'jtd', align: 'right' },
+        size: 110,
       },
 
       // Forecast columns
@@ -650,11 +668,13 @@ export function DataTable({ data, isLoading }: DataTableProps) {
     PER_PF: 'Period PF',
     PER_CF: 'Period CF',
     PER_SPEND: 'Period Spend',
+    ACTUAL_COST_G_PER_L: 'Act Cost / G/L',
     JTD_QTY: 'JTD Qty',
     JTD_PERC_COMP: 'JTD % Complete',
     JTD_PF: 'JTD PF',
     JTD_CF: 'JTD CF',
     JTD_SPEND: 'JTD Spend',
+    JTD_COST_G_PER_L: 'JTD Cost / G/L',
     FORECAST_PF: 'Forecast PF',
     FORECAST_CF: 'Forecast CF',
     FORECAST_AMOUNT: 'Forecast Amount',
