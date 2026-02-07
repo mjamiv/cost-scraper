@@ -1,10 +1,14 @@
-import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
+import { useCallback, useMemo, useEffect, useRef, lazy, Suspense } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Sidebar } from './components/Sidebar';
-import { RightPanel, RightPanelTab } from './components/RightPanel';
+import { RightPanel } from './components/RightPanel';
 import { SidebarFilters } from './components/SidebarFilters';
 import { fetchCostData, fetchWBSData, isStaticDeployment, ChartRequest } from './api/costDataApi';
-import { CostDataRow, QueryFilters, WBSDataRow } from './api/types';
+import { WBSDataRow } from './api/types';
 import { mergeCostDataWithTags, filterByWBSTags, CostDataRowWithTags } from './utils/wbsDataMerger';
+import { useAppStore } from './store/appStore';
+import { HealthScorecard } from './components/HealthScorecard';
+import { SCurveChart } from './components/SCurveChart';
 
 // Lazy load heavy components for better initial load performance
 const DataTable = lazy(() => import('./components/DataTable').then(m => ({ default: m.DataTable })));
@@ -26,28 +30,37 @@ function LoadingFallback({ message = 'Loading...' }: { message?: string }) {
   );
 }
 
-const DEFAULT_FILTERS: QueryFilters = {
-  projectNumbers: '106073',
-  startMonth: '202101',
-  districtId: '',
-  wbsTags: {},
-};
-
 function App() {
-  // Raw data from API (before filtering)
-  const [rawCostData, setRawCostData] = useState<CostDataRow[]>([]);
-  const [wbsTagData, setWbsTagData] = useState<WBSDataRow[]>([]);
+  const queryClient = useQueryClient();
 
-  const [filters, setFilters] = useState<QueryFilters>(DEFAULT_FILTERS);
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
+  // Zustand store state
+  const rawCostData = useAppStore(s => s.rawCostData);
+  const wbsTagData = useAppStore(s => s.wbsTagData);
+  const filters = useAppStore(s => s.filters);
+  const isLoading = useAppStore(s => s.isLoading);
+  const error = useAppStore(s => s.error);
+  const leftSidebarOpen = useAppStore(s => s.leftSidebarOpen);
+  const rightPanelOpen = useAppStore(s => s.rightPanelOpen);
+  const rightPanelTab = useAppStore(s => s.rightPanelTab);
+  const aboutOpen = useAppStore(s => s.aboutOpen);
+  const voiceChatOpen = useAppStore(s => s.voiceChatOpen);
+  const chatChartRequest = useAppStore(s => s.chatChartRequest);
+
+  // Zustand store actions
+  const setRawCostData = useAppStore(s => s.setRawCostData);
+  const setWbsTagData = useAppStore(s => s.setWbsTagData);
+  const setFilters = useAppStore(s => s.setFilters);
+  const setIsLoading = useAppStore(s => s.setIsLoading);
+  const setError = useAppStore(s => s.setError);
+  const setLeftSidebarOpen = useAppStore(s => s.setLeftSidebarOpen);
+  const setRightPanelOpen = useAppStore(s => s.setRightPanelOpen);
+  const setRightPanelTab = useAppStore(s => s.setRightPanelTab);
+  const setAboutOpen = useAppStore(s => s.setAboutOpen);
+  const setVoiceChatOpen = useAppStore(s => s.setVoiceChatOpen);
+  const setChatChartRequest = useAppStore(s => s.setChatChartRequest);
+
+  // Local ref for sidebar auto-close timer
   const sidebarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [rightPanelOpen, setRightPanelOpen] = useState(false);
-  const [rightPanelTab, setRightPanelTab] = useState<RightPanelTab>('chart');
-  const [aboutOpen, setAboutOpen] = useState(false);
-  const [voiceChatOpen, setVoiceChatOpen] = useState(false);
-  const [chatChartRequest, setChatChartRequest] = useState<ChartRequest | null>(null);
 
   // Reset sidebar auto-close timer (called on user activity)
   const resetSidebarTimer = useCallback(() => {
@@ -59,7 +72,7 @@ function App() {
         setLeftSidebarOpen(false);
       }, 5000);
     }
-  }, [leftSidebarOpen]);
+  }, [leftSidebarOpen, setLeftSidebarOpen]);
 
   // Start/stop sidebar timer when sidebar opens/closes
   useEffect(() => {
@@ -90,15 +103,23 @@ function App() {
     return filterByWBSTags(mergedData, filters.wbsTags || {});
   }, [mergedData, filters.wbsTags]);
 
+  // Search handler: uses React Query's fetchQuery for caching + deduplication
   const handleSearch = useCallback(async () => {
     setIsLoading(true);
     setError(null);
 
     try {
-      // Fetch both cost data and WBS tag data in parallel
       const [costResponse, wbsResponse] = await Promise.all([
-        fetchCostData(filters),
-        fetchWBSData(filters.projectNumbers, 10000)
+        queryClient.fetchQuery({
+          queryKey: ['cost-data', filters.projectNumbers, filters.startMonth, filters.districtId],
+          queryFn: () => fetchCostData(filters),
+          staleTime: 5 * 60 * 1000,
+        }),
+        queryClient.fetchQuery({
+          queryKey: ['wbs-data', filters.projectNumbers],
+          queryFn: () => fetchWBSData(filters.projectNumbers, 10000),
+          staleTime: 5 * 60 * 1000,
+        }),
       ]);
 
       setRawCostData(costResponse.data);
@@ -111,7 +132,7 @@ function App() {
     } finally {
       setIsLoading(false);
     }
-  }, [filters]);
+  }, [filters, queryClient, setIsLoading, setError, setRawCostData, setWbsTagData]);
 
   // Handle chat commands
   const handleChatCommand = useCallback((command: string) => {
@@ -175,13 +196,13 @@ function App() {
       setRightPanelTab('export');
       return;
     }
-  }, [handleSearch]);
+  }, [handleSearch, setFilters, setRightPanelOpen, setRightPanelTab, setLeftSidebarOpen]);
 
   const handleChatChartRequest = useCallback((request: ChartRequest) => {
     setChatChartRequest(request);
     setRightPanelOpen(true);
     setRightPanelTab('chart');
-  }, []);
+  }, [setChatChartRequest, setRightPanelOpen, setRightPanelTab]);
 
   const filterHints = useMemo(() => ({
     project_numbers: filters.projectNumbers
@@ -196,8 +217,8 @@ function App() {
   return (
     <div className="app-layout">
       {/* Skip to main content link for keyboard users */}
-      <a 
-        href="#main-content" 
+      <a
+        href="#main-content"
         className="skip-link"
         onClick={(e) => {
           e.preventDefault();
@@ -294,6 +315,14 @@ function App() {
 
         {/* Main Chat Area */}
         <main className="app-main" id="main-content" tabIndex={-1} role="main" aria-label="Chat interface">
+          {/* Health Scorecard - shown when data is loaded */}
+          {mergedData.length > 0 && (
+            <HealthScorecard
+              projectNumbers={filters.projectNumbers}
+              startMonth={filters.startMonth}
+            />
+          )}
+
           {/* Error Alert */}
           {error && (
             <div className="chat-error-alert">
@@ -337,21 +366,26 @@ function App() {
           {rightPanelTab === 'chart' && (
             <div className="right-panel-chart-container">
               {mergedData.length > 0 ? (
-                <Suspense fallback={<LoadingFallback message="Loading charts..." />}>
-                  {chatChartRequest?.type === 'metric-trend' ? (
-                    <MetricTrendChart
-                      data={mergedData}
-                      dateRange={chatChartRequest?.dateRange || undefined}
-                      projects={chatChartRequest?.projects || undefined}
-                      tags={chatChartRequest?.tags || filters.wbsTags}
-                      metric={chatChartRequest?.metric || undefined}
-                      groupBy={chatChartRequest?.groupBy || undefined}
-                      style={chatChartRequest?.style || undefined}
-                    />
-                  ) : (
-                    <CostCharts data={mergedData} chartRequest={chatChartRequest} activeFilters={filters.wbsTags} />
-                  )}
-                </Suspense>
+                <>
+                  <Suspense fallback={<LoadingFallback message="Loading charts..." />}>
+                    {chatChartRequest?.type === 'metric-trend' ? (
+                      <MetricTrendChart
+                        data={mergedData}
+                        dateRange={chatChartRequest?.dateRange || undefined}
+                        projects={chatChartRequest?.projects || undefined}
+                        tags={chatChartRequest?.tags || filters.wbsTags}
+                        metric={chatChartRequest?.metric || undefined}
+                        groupBy={chatChartRequest?.groupBy || undefined}
+                        style={chatChartRequest?.style || undefined}
+                      />
+                    ) : (
+                      <CostCharts data={mergedData} chartRequest={chatChartRequest} activeFilters={filters.wbsTags} />
+                    )}
+                  </Suspense>
+                  <div className="mt-4">
+                    <SCurveChart projectNumbers={filters.projectNumbers} startMonth={filters.startMonth} />
+                  </div>
+                </>
               ) : (
                 <div className="panel-empty-state">
                   <p>No data loaded. Use filters to load project data.</p>

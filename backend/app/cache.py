@@ -53,6 +53,11 @@ _lookup_cache_lock = Lock()
 _filter_cache: TTLCache = TTLCache(maxsize=FILTER_CACHE_SIZE, ttl=FILTER_CACHE_TTL)
 _filter_cache_lock = Lock()
 
+# Chat context cache (keyed by project+month, longer TTL since context doesn't change often)
+CHAT_CONTEXT_CACHE_TTL = 900  # 15 minutes
+_chat_context_cache: TTLCache = TTLCache(maxsize=50, ttl=CHAT_CONTEXT_CACHE_TTL)
+_chat_context_cache_lock = Lock()
+
 
 # ============================================================================
 # Cache Key Generation
@@ -129,6 +134,22 @@ def set_cached_filters(result: dict) -> None:
         logger.debug("Cached filter options")
 
 
+def get_cached_chat_context(key: str) -> Optional[dict]:
+    """Get cached chat context data."""
+    with _chat_context_cache_lock:
+        result = _chat_context_cache.get(key)
+        if result is not None:
+            logger.debug(f"Cache hit for chat context: {key[:16]}...")
+        return result
+
+
+def set_cached_chat_context(key: str, result: dict) -> None:
+    """Store chat context data in cache."""
+    with _chat_context_cache_lock:
+        _chat_context_cache[key] = result
+        logger.debug(f"Cached chat context: {key[:16]}...")
+
+
 # ============================================================================
 # Cache Invalidation
 # ============================================================================
@@ -160,12 +181,22 @@ def clear_filter_cache() -> int:
         return count
 
 
+def clear_chat_context_cache() -> int:
+    """Clear chat context cache. Returns number of items cleared."""
+    with _chat_context_cache_lock:
+        count = len(_chat_context_cache)
+        _chat_context_cache.clear()
+        logger.info(f"Cleared chat context cache: {count} items")
+        return count
+
+
 def clear_all_caches() -> dict:
     """Clear all caches. Returns counts of cleared items."""
     return {
         "query_cache": clear_query_cache(),
         "lookup_cache": clear_lookup_cache(),
-        "filter_cache": clear_filter_cache()
+        "filter_cache": clear_filter_cache(),
+        "chat_context_cache": clear_chat_context_cache()
     }
 
 
@@ -196,10 +227,18 @@ def get_cache_stats() -> dict:
             "ttl": FILTER_CACHE_TTL
         }
     
+    with _chat_context_cache_lock:
+        chat_context_stats = {
+            "size": len(_chat_context_cache),
+            "maxsize": _chat_context_cache.maxsize,
+            "ttl": CHAT_CONTEXT_CACHE_TTL
+        }
+
     return {
         "query_cache": query_stats,
         "lookup_cache": lookup_stats,
-        "filter_cache": filter_stats
+        "filter_cache": filter_stats,
+        "chat_context_cache": chat_context_stats
     }
 
 

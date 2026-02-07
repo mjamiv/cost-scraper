@@ -3,8 +3,16 @@ import { getMockCostDataResponse } from './mockData';
 
 const API_BASE = '/api';
 
-// Check if running on GitHub Pages (static deployment)
-const isStaticDeployment = import.meta.env.PROD && window.location.hostname.includes('github.io');
+// Demo mode: active on GitHub Pages or when ?demo=true is in URL
+if (new URLSearchParams(window.location.search).get('demo') === 'true') {
+  sessionStorage.setItem('cost-scraper-demo', '1');
+}
+if (new URLSearchParams(window.location.search).get('live') === 'true') {
+  sessionStorage.removeItem('cost-scraper-demo');
+}
+const isStaticDeployment =
+  (import.meta.env.PROD && window.location.hostname.includes('github.io')) ||
+  sessionStorage.getItem('cost-scraper-demo') === '1';
 
 export async function fetchCostData(filters: QueryFilters): Promise<CostDataResponse> {
   // Use mock data for GitHub Pages demo

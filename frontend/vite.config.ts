@@ -30,8 +30,7 @@ export default defineConfig({
             './src/components/ChatCharts.tsx'
           ],
           'feature-chat': [
-            './src/components/ChatInterface.tsx',
-            './src/components/ChatBot.tsx'
+            './src/components/ChatInterface.tsx'
           ],
         }
       }

@@ -17,6 +17,8 @@ import {
 } from 'recharts';
 import { CostDataRow, WBSTagFilters } from '../api/types';
 import { excludeCurrentMonth } from '../utils/llmDataFormatter';
+import { useAppStore } from '../store/appStore';
+import { SCurveChart } from './SCurveChart';
 
 // Brand colors - gold/black theme
 const COLORS = {
@@ -649,7 +651,7 @@ export function VarianceChart({ data, title = 'Top Variances', projects, dateRan
   );
 }
 
-export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value' | 'manhours-trend' | 'fte-trend' | 'discipline-breakdown' | 'metric-trend';
+export type ChartType = 'spend-trend' | 'project-comparison' | 'budget-pie' | 'variance' | 'earned-value' | 'manhours-trend' | 'fte-trend' | 'discipline-breakdown' | 'metric-trend' | 's-curve';
 
 /**
  * Manhours Trend Chart - Bar + Line combo showing period manhours and cumulative
@@ -1078,6 +1080,8 @@ interface InlineChatChartProps {
  * Main component to render inline charts in chat based on type
  */
 export function InlineChatChart({ type, data, title, dateRange, projects, excludeCurrentMonth: exclude, tags, metric, groupBy, style }: InlineChatChartProps) {
+  const filters = useAppStore(s => s.filters);
+
   switch (type) {
     case 'spend-trend':
       return <SpendTrendChart data={data} title={title} dateRange={dateRange} projects={projects} excludeCurrentMonth={exclude} tags={tags} />;
@@ -1109,6 +1113,8 @@ export function InlineChatChart({ type, data, title, dateRange, projects, exclud
           style={style}
         />
       );
+    case 's-curve':
+      return <SCurveChart projectNumbers={filters.projectNumbers} startMonth={filters.startMonth} />;
     default:
       return null;
   }
@@ -1192,6 +1198,7 @@ export function detectChartRequest(message: string): ChartType | null {
     if (args.includes('manhour') || args.includes('mh trend') || args.includes('labor hour')) return 'manhours-trend';
     if (args.includes('fte') || args.includes('headcount') || args.includes('staffing')) return 'fte-trend';
     if (args.includes('discipline') || args.includes('by discipline')) return 'discipline-breakdown';
+    if (args.includes('s-curve') || args.includes('scurve') || args.includes('planned vs actual') || args.includes('bcws') || args.includes('bcwp')) return 's-curve';
     if (args.includes('earned') || args.includes('ev') || args.includes('cpi')) return 'earned-value';
     if (args.includes('project') || args.includes('compare')) return 'project-comparison';
     if (args.includes('pie') || args.includes('budget') || args.includes('allocation')) return 'budget-pie';
@@ -1208,6 +1215,11 @@ export function detectChartRequest(message: string): ChartType | null {
   }
   if ((lower.includes('discipline') || lower.includes('by discipline') || lower.includes('per discipline')) && (lower.includes('chart') || lower.includes('breakdown') || lower.includes('show') || lower.includes('graph'))) {
     return 'discipline-breakdown';
+  }
+
+  // Check for S-curve
+  if (lower.includes('s-curve') || lower.includes('s curve') || lower.includes('scurve') || lower.includes('planned vs actual') || lower.includes('bcws vs bcwp') || lower.includes('bcws')) {
+    return 's-curve';
   }
 
   // Check for earned value (more specific)

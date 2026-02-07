@@ -59,8 +59,11 @@ from app.metrics import (
 )
 from app.cache import (
     get_cache_stats, clear_all_caches, execute_query_cached,
-    get_cached_filters, set_cached_filters, get_cached_lookup, set_cached_lookup
+    get_cached_filters, set_cached_filters, get_cached_lookup, set_cached_lookup,
+    get_cached_chat_context, set_cached_chat_context, generate_cache_key
 )
+from app.evm import compute_evm_metrics, compute_project_health
+from app.routers.metrics import router as metrics_router
 
 # ============================================================================
 # Structured Logging Setup
@@ -147,6 +150,9 @@ app.add_middleware(
 
 # Initialize app info metrics
 init_app_info("2.0.0")
+
+# Register routers
+app.include_router(metrics_router)
 
 
 # ============================================================================
@@ -661,8 +667,8 @@ async def api_query(
         )
         
         # Execute
-        result = execute_query(sql, params)
-        
+        result = execute_query_cached(sql, params)
+
         return QueryResponse(
             success=True,
             columns=result["columns"],
@@ -730,7 +736,7 @@ async def api_projects(
                 params.append(district_id)
             sql += " ORDER BY PROJECT_NUMBER LIMIT 1000"
 
-        result = execute_query(sql, tuple(params) if params else None)
+        result = execute_query_cached(sql, tuple(params) if params else None)
 
         return {
             "success": True,
@@ -784,7 +790,7 @@ async def api_cost_data(
             end_month=None,
             limit=settings.max_limit
         )
-        result = execute_query(sql, params)
+        result = execute_query_cached(sql, params)
 
         # Transform to frontend's expected format
         return {
@@ -821,7 +827,7 @@ async def api_districts(
         WHERE LEAD_DISTRICT IS NOT NULL
         ORDER BY LEAD_DISTRICT
         """
-        result = execute_query(sql)
+        result = execute_query_cached(sql)
         return result["rows"]
 
     except Exception as e:
@@ -849,7 +855,7 @@ async def api_filters(
         WHERE LEAD_DISTRICT IS NOT NULL
         ORDER BY LEAD_DISTRICT
         """
-        districts_result = execute_query(districts_sql)
+        districts_result = execute_query_cached(districts_sql)
 
         # Get fiscal months
         months_sql = """
@@ -858,7 +864,7 @@ async def api_filters(
         ORDER BY FISCAL_YEAR_MONTH_NO DESC
         LIMIT 48
         """
-        months_result = execute_query(months_sql)
+        months_result = execute_query_cached(months_sql)
 
         return {
             "districts": districts_result["rows"],
@@ -899,7 +905,7 @@ async def api_wbs_data(
     try:
         start_time = time.time()
         sql, params = build_wbs_query(projects, limit)
-        result = execute_query(sql, params)
+        result = execute_query_cached(sql, params)
         timing_ms = (time.time() - start_time) * 1000
 
         # Debug: log sample of USER_DEFINED_13 values for revenue calculation troubleshooting
@@ -963,7 +969,7 @@ async def api_wbs_snapshot(
     try:
         start_time = time.time()
         sql, params = build_wbs_snapshot_query(projects, fiscal_month, limit)
-        result = execute_query(sql, params)
+        result = execute_query_cached(sql, params)
         timing_ms = (time.time() - start_time) * 1000
 
         return {
@@ -1380,51 +1386,110 @@ def build_data_context(
     totals_data = totals()
     ev_data = earned_value()
 
+    # Compute full EVM metrics
+    evm = compute_evm_metrics(rows)
+    health = compute_project_health(evm)
+
+    # Trend direction: compare last 3 periods' avg spend vs prior 3
+    spend_trend = trend("PER_SPEND")
+    trend_direction = "stable"
+    if len(spend_trend) >= 6:
+        recent_avg = sum(t["value"] for t in spend_trend[-3:]) / 3
+        prior_avg = sum(t["value"] for t in spend_trend[-6:-3]) / 3
+        if prior_avg > 0:
+            change_pct = (recent_avg - prior_avg) / prior_avg * 100
+            if change_pct > 10:
+                trend_direction = f"increasing (+{change_pct:.0f}%)"
+            elif change_pct < -10:
+                trend_direction = f"decreasing ({change_pct:.0f}%)"
+
+    # Concern detection
+    concerns = []
+    if evm["CPI"] and evm["CPI"] < 0.9:
+        concerns.append(f"CPI critically low at {evm['CPI']:.2f} (below 0.90 threshold)")
+    if evm["SPI"] and evm["SPI"] < 0.9:
+        concerns.append(f"SPI critically low at {evm['SPI']:.2f} (behind schedule)")
+    if totals_data["budget"] > 0:
+        forecast_overrun = (totals_data["forecast"] - totals_data["budget"]) / totals_data["budget"] * 100
+        if forecast_overrun > 10:
+            concerns.append(f"Forecast exceeds budget by {forecast_overrun:.1f}%")
+    if evm["TCPI"] and evm["TCPI"] > 1.20:
+        concerns.append(f"TCPI at {evm['TCPI']:.2f} — project recovery unlikely at current pace")
+
     lines = []
+
+    # --- Always-included sections ---
     lines.append("## Data Coverage")
-    lines.append(f"- Rows: {coverage['rowCount']}")
-    lines.append(f"- Projects: {coverage['projectCount']}")
-    lines.append(f"- Periods: {coverage['periodCount']}")
-    lines.append("")
-    lines.append("## Summary Totals")
-    lines.append(f"- Total Budget: {totals_data['budget']:.2f}")
-    lines.append(f"- Total JTD Spend: {totals_data['spend']:.2f}")
-    lines.append(f"- Total Forecast: {totals_data['forecast']:.2f}")
-    lines.append(f"- Variance: {totals_data['variance']:.2f}")
-    lines.append(f"- Total Manhours: {totals_data['manhours']:.2f}")
-    lines.append("")
-    lines.append("## Earned Value")
-    lines.append(f"- % Complete: {ev_data['percent_complete']:.2f}")
-    lines.append(f"- Earned Value: {ev_data['earned_value']:.2f}")
-    lines.append(f"- CPI: {ev_data['cpi']:.2f}")
+    lines.append(f"- Rows: {coverage['rowCount']}, Projects: {coverage['projectCount']}, Periods: {coverage['periodCount']}")
     lines.append("")
 
-    if query_type == "trend":
-        trend_rows = trend("PER_SPEND")
-        lines.append("## Spend Trend (Period)")
-        for item in trend_rows[:24]:
+    lines.append("## Summary Totals")
+    lines.append(f"- Budget: {totals_data['budget']:.2f}, JTD Spend: {totals_data['spend']:.2f}")
+    lines.append(f"- Forecast: {totals_data['forecast']:.2f}, Variance: {totals_data['variance']:.2f}")
+    lines.append(f"- Manhours: {totals_data['manhours']:.2f}")
+    lines.append("")
+
+    lines.append("## EVM Metrics")
+    lines.append(f"- BAC: {evm['BAC']:.2f}, ACWP: {evm['ACWP']:.2f}, BCWP: {evm['BCWP']:.2f}, BCWS: {evm['BCWS']:.2f}")
+    lines.append(f"- CPI: {evm['CPI']:.4f}, SPI: {evm['SPI']:.4f}")
+    lines.append(f"- CV: {evm['CV']:.2f}, SV: {evm['SV']:.2f}")
+    lines.append(f"- EAC: {evm['EAC']:.2f}, ETC: {evm['ETC']:.2f}, VAC: {evm['VAC']:.2f}")
+    lines.append(f"- TCPI: {evm['TCPI']:.4f}")
+    lines.append(f"- % Complete: {evm['percent_complete']:.2f}, % Spent: {evm['percent_spent']:.2f}")
+    lines.append("")
+
+    lines.append("## Project Health")
+    lines.append(f"- Overall: {health['overall'].upper()}")
+    lines.append(f"- CPI: {health['CPI']['status']} ({health['CPI']['value']:.4f})")
+    lines.append(f"- SPI: {health['SPI']['status']} ({health['SPI']['value']:.4f})")
+    lines.append(f"- EAC Variance: {health['EAC_variance']['status']} ({health['EAC_variance']['percent']:.1f}%)")
+    lines.append(f"- TCPI: {health['TCPI']['status']} ({health['TCPI']['value']:.4f})")
+    lines.append("")
+
+    if concerns:
+        lines.append("## Key Concerns")
+        for c in concerns:
+            lines.append(f"- **{c}**")
+        lines.append("")
+
+    # --- Spend trend (last 6 periods compact for general, full for trend) ---
+    max_trend = 24 if query_type == "trend" else 6
+    if spend_trend:
+        lines.append("## Spend Trend")
+        lines.append(f"- Direction: {trend_direction}")
+        for item in spend_trend[-max_trend:]:
             lines.append(f"- {item['period']}: {item['value']:.2f} (cum {item['cumulative']:.2f})")
         lines.append("")
-    elif query_type == "variance":
-        var_items = variance_items()
+
+    # --- Top variances (compact for general, full for variance type) ---
+    var_items = variance_items()
+    max_var = 10 if query_type == "variance" else 3
+    if var_items:
         lines.append("## Top Variances")
-        for item in var_items:
+        for item in var_items[:max_var]:
             lines.append(f"- {item['project']} {item['cbs']}: {item['variance']:.2f} ({item['description']})")
         lines.append("")
-    elif query_type == "fte":
-        trend_rows = trend("PER_MH")
-        lines.append("## Manhours Trend (Period)")
-        for item in trend_rows[:24]:
-            lines.append(f"- {item['period']}: {item['value']:.2f} (cum {item['cumulative']:.2f})")
-        lines.append("")
-    elif query_type == "breakdown":
-        for field, label in [
-            ("D_GROUP", "Discipline"),
-            ("USER_DEFINED_7", "Firm"),
-            ("AREA", "Area"),
-            ("PHASE", "Phase"),
-            ("ACCOUNT_CODE", "Account"),
-        ]:
+
+    # --- Manhours trend (if fte query or compact for general) ---
+    if query_type == "fte" or query_type == "general":
+        mh_trend = trend("PER_MH")
+        max_mh = 24 if query_type == "fte" else 6
+        if mh_trend:
+            lines.append("## Manhours Trend")
+            for item in mh_trend[-max_mh:]:
+                lines.append(f"- {item['period']}: {item['value']:.2f} (cum {item['cumulative']:.2f})")
+            lines.append("")
+
+    # --- Breakdowns (full for breakdown type, 1-line summary for general) ---
+    breakdown_fields = [
+        ("D_GROUP", "Discipline"),
+        ("USER_DEFINED_7", "Firm"),
+        ("AREA", "Area"),
+        ("PHASE", "Phase"),
+        ("ACCOUNT_CODE", "Account"),
+    ]
+    if query_type == "breakdown":
+        for field, label in breakdown_fields:
             items = breakdown(field)
             if items:
                 lines.append(f"## Breakdown by {label}")
@@ -1432,6 +1497,15 @@ def build_data_context(
                     lines.append(f"- {item['label']}: Spend {item['spend']:.2f}, Budget {item['budget']:.2f}, MH {item['manhours']:.2f}")
                 lines.append("")
                 break
+    elif query_type == "general":
+        # Compact 1-line breakdown summaries
+        for field, label in breakdown_fields[:2]:
+            items = breakdown(field)
+            if items:
+                top3 = ", ".join(f"{i['label']}={i['spend']:.0f}" for i in items[:3])
+                lines.append(f"- Top {label}: {top3}")
+        if any(breakdown(f) for f, _ in breakdown_fields[:2]):
+            lines.append("")
 
     return "\n".join(lines), coverage
 
@@ -1578,6 +1652,26 @@ CRITICAL FORMATTING RULES:
 ## Key Terms
 CB=Current Budget, JTD=Job-to-Date, Fcst=Forecast, Var=Variance (+favorable/-unfavorable), CBS=Cost Breakdown, PF=Performance Factor (>1=unfavorable), CF=Cost Factor (>1=over budget)
 
+## EVM Terminology
+- **BAC** (Budget at Completion): Total approved budget
+- **ACWP** (Actual Cost of Work Performed): What we actually spent (= JTD Spend)
+- **BCWP** (Budgeted Cost of Work Performed): Earned Value = % Complete × BAC
+- **BCWS** (Budgeted Cost of Work Scheduled): Planned value at this point in time
+- **CPI** (Cost Performance Index): BCWP/ACWP — >1.0 under budget, <1.0 over budget
+- **SPI** (Schedule Performance Index): BCWP/BCWS — >1.0 ahead, <1.0 behind
+- **CV** (Cost Variance): BCWP - ACWP — positive is favorable
+- **SV** (Schedule Variance): BCWP - BCWS — positive is favorable
+- **EAC** (Estimate at Completion): BAC/CPI — projected total cost
+- **ETC** (Estimate to Complete): EAC - ACWP — remaining cost
+- **VAC** (Variance at Completion): BAC - EAC — projected over/under
+- **TCPI** (To-Complete Performance Index): required CPI to finish on budget — >1.10 is a warning
+
+## Proactive Insights
+When the data context includes Key Concerns or health indicators showing yellow/red:
+- Proactively highlight the most critical issue even if not directly asked
+- Suggest relevant follow-up questions (e.g., "Would you like to see the trend of CPI over time?" or "Want a breakdown of which disciplines are driving the cost overrun?")
+- If CPI or SPI is below 0.9, treat it as a headline finding
+
 ## Output Format (JSON Only)
 Return a single JSON object with these fields:
 - "answer": string (empty if you need clarification)
@@ -1688,10 +1782,10 @@ async def api_chat(
             end_month=end_month,
             limit=settings.max_limit
         )
-        cost_result = execute_query(sql, params)
+        cost_result = execute_query_cached(sql, params)
 
         wbs_sql, wbs_params = build_wbs_query(projects, limit=100000)
-        wbs_result = execute_query(wbs_sql, wbs_params)
+        wbs_result = execute_query_cached(wbs_sql, wbs_params)
 
         merged_rows = merge_cost_with_wbs(cost_result["rows"], wbs_result["rows"])
         if chat_request.filter_hints and chat_request.filter_hints.wbs_tags:
@@ -1728,12 +1822,27 @@ async def api_chat(
         query_type = classify_query_type(chat_request.message)
 
         exclude_current = chat_request.context_prefs.exclude_current_month if chat_request.context_prefs else False
-        data_context, coverage = build_data_context(
-            merged_rows,
+
+        # Context caching: avoid recomputing data context for same project/month/type
+        ctx_cache_key = generate_cache_key(
+            projects=",".join(sorted(projects)),
+            start_month=start_month or "",
+            end_month=end_month or "",
             query_type=query_type,
-            date_range=date_range,
-            exclude_current_month=exclude_current
+            exclude_current=str(exclude_current),
         )
+        cached_ctx = get_cached_chat_context(ctx_cache_key)
+        if cached_ctx:
+            data_context = cached_ctx["data_context"]
+            coverage = cached_ctx["coverage"]
+        else:
+            data_context, coverage = build_data_context(
+                merged_rows,
+                query_type=query_type,
+                date_range=date_range,
+                exclude_current_month=exclude_current
+            )
+            set_cached_chat_context(ctx_cache_key, {"data_context": data_context, "coverage": coverage})
 
         messages = [{"role": "system", "content": get_system_prompt(data_context, chat_request.filter_hints, chat_request.message)}]
         for msg in chat_request.history[-10:]:
@@ -1743,7 +1852,7 @@ async def api_chat(
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=messages,
-            max_completion_tokens=900,
+            max_completion_tokens=4096,
             temperature=0.2
         )
 
