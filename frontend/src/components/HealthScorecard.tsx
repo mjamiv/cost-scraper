@@ -95,7 +95,7 @@ function buildCards(evm: EVMMetrics, health: ProjectHealth) {
       label: 'Variance',
       value: formatCurrency(evm.VAC),
       status: health.EAC_variance.status,
-      subtext: `${health.EAC_variance.percent.toFixed(1)}% of budget`,
+      subtext: `${health.EAC_variance.percent.toFixed(1)}% variance`,
     },
   ];
 }

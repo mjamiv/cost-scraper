@@ -100,16 +100,29 @@ function getMockEVMMetrics(): EVMMetricsResponse {
   const EAC = BAC / CPI;
   const ETC = EAC - ACWP;
   const VAC = BAC - EAC;
+  const TCPI = (BAC - BCWP) / (BAC - ACWP);
+
+  // Health statuses — match backend compute_project_health() thresholds
+  const cpiStatus = CPI >= 1 ? 'green' : CPI >= 0.9 ? 'yellow' : 'red';
+  const spiStatus = SPI >= 1 ? 'green' : SPI >= 0.9 ? 'yellow' : 'red';
+  const eacVarPct = (VAC / BAC) * 100;
+  const eacStatus = Math.abs(eacVarPct) <= 5 ? 'green' : Math.abs(eacVarPct) <= 10 ? 'yellow' : 'red';
+  const tcpiStatus = TCPI <= 1.10 ? 'green' : TCPI <= 1.20 ? 'yellow' : 'red';
+
+  // Overall = worst individual status (mirrors backend)
+  const priority: Record<string, number> = { red: 0, yellow: 1, green: 2 };
+  const statuses = [cpiStatus, spiStatus, eacStatus, tcpiStatus];
+  const overall = statuses.reduce((worst, s) => priority[s] < priority[worst] ? s : worst) as 'green' | 'yellow' | 'red';
 
   return {
     success: true,
-    evm: { BAC, ACWP, BCWP, BCWS, CPI, SPI, CV: BCWP - ACWP, SV: BCWP - BCWS, EAC, ETC, VAC, TCPI: (BAC - BCWP) / (BAC - ACWP), percent_complete: (BCWP / BAC) * 100, percent_spent: (ACWP / BAC) * 100, latest_period: '202203', total_periods: 15 },
+    evm: { BAC, ACWP, BCWP, BCWS, CPI, SPI, CV: BCWP - ACWP, SV: BCWP - BCWS, EAC, ETC, VAC, TCPI, percent_complete: (BCWP / BAC) * 100, percent_spent: (ACWP / BAC) * 100, latest_period: '202203', total_periods: 15 },
     health: {
-      CPI: { value: CPI, status: CPI >= 1 ? 'green' : CPI >= 0.9 ? 'yellow' : 'red' },
-      SPI: { value: SPI, status: SPI >= 1 ? 'green' : SPI >= 0.9 ? 'yellow' : 'red' },
-      EAC_variance: { value: VAC, status: Math.abs(VAC / BAC) < 0.05 ? 'green' : Math.abs(VAC / BAC) < 0.1 ? 'yellow' : 'red', percent: (VAC / BAC) * 100 },
-      TCPI: { value: (BAC - BCWP) / (BAC - ACWP), status: 'green' },
-      overall: CPI >= 1 && SPI >= 0.96 ? 'green' : 'yellow',
+      CPI: { value: CPI, status: cpiStatus },
+      SPI: { value: SPI, status: spiStatus },
+      EAC_variance: { value: VAC, status: eacStatus, percent: eacVarPct },
+      TCPI: { value: TCPI, status: tcpiStatus },
+      overall,
     },
     row_count: 150,
     timing_ms: 42,

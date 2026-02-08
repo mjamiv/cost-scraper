@@ -32,7 +32,7 @@ function generateMockRows(): CostDataRow[] {
         const cbAmt = Math.random() * 500000 + 50000;
         const jtdSpend = cbAmt * (Math.random() * 0.8 + 0.1);
         const forecastAmt = cbAmt * (Math.random() * 0.3 + 0.9);
-        const percComp = jtdSpend / forecastAmt;
+        const percComp = (jtdSpend / forecastAmt) * 100;
         
         rows.push({
           FISCAL_YEAR_MONTH_NO: month,

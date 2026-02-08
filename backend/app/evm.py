@@ -94,7 +94,7 @@ def compute_evm_metrics(rows: list[dict], start_month: Optional[str] = None) -> 
     sv = bcwp - bcws
 
     # Forecasts
-    eac = _safe_div(bac, cpi) if cpi else 0.0
+    eac = _safe_div(bac, cpi)
     etc = eac - acwp
     vac = bac - eac
 
@@ -244,10 +244,9 @@ def compute_project_health(metrics: dict) -> dict:
         "CPI": {"value": metrics.get("CPI", 0.0), "status": cpi_status},
         "SPI": {"value": metrics.get("SPI", 0.0), "status": spi_status},
         "EAC_variance": {
-            "value": round(metrics.get("EAC", 0.0) - metrics.get("BAC", 0.0), 2),
+            "value": round(metrics.get("VAC", 0.0), 2),
             "percent": round(
-                abs(metrics.get("EAC", 0.0) - metrics.get("BAC", 0.0))
-                / metrics.get("BAC", 1.0) * 100.0,
+                metrics.get("VAC", 0.0) / metrics.get("BAC", 1.0) * 100.0,
                 2
             ) if metrics.get("BAC", 0.0) else 0.0,
             "status": eac_status,
