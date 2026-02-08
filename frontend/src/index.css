@@ -1275,6 +1275,17 @@ body {
   }
 }
 
+/* Dashboard tablet adjustments */
+@media (max-width: 1024px) {
+  .dashboard-widget-title {
+    @apply text-[10px];
+  }
+
+  .dashboard-toolbar-btn span {
+    @apply hidden;
+  }
+}
+
 @media (max-width: 768px) {
   :root {
     --sidebar-width: 100%;
@@ -1298,6 +1309,27 @@ body {
   .chat-markdown th,
   .chat-markdown td {
     @apply px-2 py-1.5;
+  }
+
+  /* Dashboard responsive — stack toolbar vertically on mobile */
+  .dashboard-toolbar {
+    @apply flex-col items-stretch gap-2;
+  }
+
+  .dashboard-toolbar-left,
+  .dashboard-toolbar-right {
+    @apply justify-between;
+  }
+
+  /* Widget picker fills screen on mobile */
+  .widget-picker {
+    max-width: 100%;
+    max-height: 90vh;
+    margin: 0.5rem;
+  }
+
+  .widget-picker-grid {
+    @apply grid-cols-2;
   }
 }
 
@@ -1423,4 +1455,351 @@ body {
 /* Inline Error Fallback */
 .inline-error-fallback {
   @apply p-4 bg-neutral-900/50 border border-red-900/50 rounded-lg;
+}
+
+/* ============================================================================
+   Header View Mode Toggle
+   ============================================================================ */
+
+.header-view-toggle {
+  @apply flex rounded-lg overflow-hidden;
+  border: 1px solid var(--color-neutral-800);
+}
+
+.header-view-toggle-btn {
+  @apply p-2;
+  color: var(--color-neutral-500);
+  @apply transition-all duration-200;
+  background: transparent;
+}
+
+.header-view-toggle-btn:hover {
+  color: var(--color-neutral-200);
+  background: var(--color-neutral-900);
+}
+
+.header-view-toggle-btn.active {
+  color: var(--color-gold);
+  background: var(--color-neutral-900);
+}
+
+.header-view-toggle-btn:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(212, 164, 24, 0.6);
+  z-index: 1;
+}
+
+/* ============================================================================
+   Dashboard View
+   ============================================================================ */
+
+.app-main-dashboard {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.dashboard-view {
+  @apply flex flex-col;
+  /* Explicit height constraint — don't rely on flex: 1 / height: 100% (see CLAUDE.md CSS notes) */
+  height: calc(100vh - var(--header-height));
+  max-height: calc(100vh - var(--header-height));
+  min-height: 0;
+}
+
+.dashboard-empty {
+  @apply flex flex-col items-center justify-center;
+  @apply text-center px-6;
+  min-height: 400px;
+}
+
+.dashboard-grid-container {
+  /* Explicit height: viewport minus header minus toolbar (~44px) */
+  height: calc(100vh - var(--header-height) - 44px);
+  max-height: calc(100vh - var(--header-height) - 44px);
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+/* ============================================================================
+   Dashboard Toolbar
+   ============================================================================ */
+
+.dashboard-toolbar {
+  @apply flex items-center justify-between px-4 py-2 flex-shrink-0 flex-wrap gap-2;
+  border-bottom: 1px solid var(--color-neutral-800);
+  background: var(--color-neutral-950);
+}
+
+.dashboard-toolbar-left {
+  @apply flex items-center gap-3;
+}
+
+.dashboard-toolbar-right {
+  @apply flex items-center gap-2;
+}
+
+/* Dropdown option styling for dark theme */
+.dashboard-preset-select option {
+  background: var(--color-neutral-900);
+  color: var(--color-neutral-200);
+}
+
+.dashboard-preset-select {
+  @apply px-3 py-1.5 rounded-lg text-sm;
+  background: var(--color-neutral-900);
+  border: 1px solid var(--color-neutral-800);
+  color: var(--color-neutral-200);
+  @apply transition-all duration-200;
+  cursor: pointer;
+}
+
+.dashboard-preset-select:focus {
+  @apply outline-none;
+  border-color: var(--color-gold);
+}
+
+.dashboard-toolbar-btn {
+  @apply flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium;
+  background: var(--color-neutral-900);
+  border: 1px solid var(--color-neutral-800);
+  color: var(--color-neutral-400);
+  @apply transition-all duration-200;
+}
+
+.dashboard-toolbar-btn:hover {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+
+.dashboard-toolbar-btn.active {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+  background: rgba(212, 164, 24, 0.1);
+}
+
+.dashboard-toolbar-btn:focus-visible,
+.dashboard-preset-select:focus-visible {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 2px rgba(212, 164, 24, 0.4);
+}
+
+/* ============================================================================
+   Dashboard Widget Card
+   ============================================================================ */
+
+.dashboard-widget {
+  @apply flex flex-col h-full;
+  background: var(--color-neutral-950);
+  border: 1px solid var(--color-neutral-800);
+  border-radius: 0.75rem;
+  overflow: hidden;
+}
+
+.dashboard-widget-header {
+  @apply flex items-center justify-between px-3 py-2 flex-shrink-0;
+  border-bottom: 1px solid var(--color-neutral-800);
+  background: var(--color-neutral-900);
+}
+
+.dashboard-widget-title {
+  @apply text-xs font-semibold uppercase tracking-wide;
+  color: var(--color-neutral-400);
+}
+
+.dashboard-widget-drag-handle {
+  @apply cursor-grab p-0.5 rounded;
+  color: var(--color-neutral-600);
+  @apply transition-colors;
+}
+
+.dashboard-widget-drag-handle:hover {
+  color: var(--color-gold);
+}
+
+.dashboard-widget-drag-handle:active {
+  cursor: grabbing;
+}
+
+.dashboard-widget-remove {
+  @apply p-1 rounded;
+  color: var(--color-neutral-600);
+  @apply transition-all duration-150;
+}
+
+.dashboard-widget-remove:hover {
+  color: var(--color-red-400, #ef4444);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.dashboard-widget-body {
+  @apply flex-1 p-3;
+  min-height: 0;
+  overflow: hidden;
+  /* Inner scrollable area — child content clips to widget bounds */
+}
+
+.dashboard-widget-body > * {
+  max-height: 100%;
+  overflow: auto;
+}
+
+.dashboard-widget-error {
+  @apply flex flex-col items-center justify-center gap-2 h-full;
+  @apply text-sm;
+  color: var(--color-neutral-500);
+}
+
+/* ============================================================================
+   Widget Picker Modal
+   ============================================================================ */
+
+.widget-picker-overlay {
+  @apply fixed inset-0 z-50;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  @apply flex items-center justify-center p-4;
+}
+
+.widget-picker {
+  @apply rounded-xl overflow-hidden;
+  background: var(--color-neutral-900);
+  border: 1px solid var(--color-neutral-700);
+  max-width: 640px;
+  width: 100%;
+  max-height: 80vh;
+  @apply flex flex-col;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.widget-picker-header {
+  @apply flex items-center justify-between px-5 py-4;
+  border-bottom: 1px solid var(--color-neutral-800);
+}
+
+.widget-picker-header h3 {
+  @apply text-base font-semibold;
+  color: var(--color-white);
+}
+
+.widget-picker-close {
+  @apply p-1.5 rounded;
+  color: var(--color-neutral-500);
+  @apply transition-colors;
+}
+
+.widget-picker-close:hover {
+  color: var(--color-white);
+}
+
+.widget-picker-categories {
+  @apply flex gap-1.5 px-5 py-3;
+  border-bottom: 1px solid var(--color-neutral-800);
+  overflow-x: auto;
+}
+
+.widget-picker-cat-btn {
+  @apply px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap;
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-400);
+  @apply transition-all duration-200;
+}
+
+.widget-picker-cat-btn:hover {
+  color: var(--color-neutral-200);
+}
+
+.widget-picker-cat-btn.active {
+  background: var(--color-gold);
+  color: var(--color-black);
+}
+
+.widget-picker-grid {
+  @apply grid grid-cols-2 sm:grid-cols-3 gap-3 p-5;
+  overflow-y: auto;
+}
+
+.widget-picker-item {
+  @apply flex flex-col items-center gap-2 p-4 rounded-lg;
+  background: var(--color-neutral-800);
+  border: 1px solid var(--color-neutral-700);
+  @apply transition-all duration-200;
+  cursor: pointer;
+  text-align: center;
+}
+
+.widget-picker-item:hover:not(:disabled) {
+  border-color: var(--color-gold);
+}
+
+.widget-picker-item:focus-visible {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 0 2px rgba(212, 164, 24, 0.4);
+}
+
+.widget-picker-item.already-added {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+.widget-picker-item-icon {
+  color: var(--color-gold);
+}
+
+.widget-picker-item-title {
+  @apply text-xs font-medium;
+  color: var(--color-neutral-200);
+}
+
+.widget-picker-item-size {
+  @apply text-[10px];
+  color: var(--color-neutral-600);
+}
+
+.widget-picker-item-badge {
+  @apply text-[10px] px-1.5 py-0.5 rounded-full;
+  background: var(--color-neutral-700);
+  color: var(--color-neutral-400);
+}
+
+/* ============================================================================
+   react-grid-layout Dark Theme Overrides
+   ============================================================================ */
+
+.dashboard-grid .react-grid-item {
+  @apply transition-all duration-200;
+}
+
+.dashboard-grid .react-grid-item.react-grid-placeholder {
+  background: rgba(212, 164, 24, 0.15);
+  border: 2px dashed var(--color-gold);
+  border-radius: 0.75rem;
+  opacity: 1;
+}
+
+.dashboard-grid .react-grid-item > .react-resizable-handle {
+  @apply opacity-0 transition-opacity duration-200;
+}
+
+.dashboard-grid .react-grid-item:hover > .react-resizable-handle {
+  @apply opacity-100;
+}
+
+.dashboard-grid .react-grid-item > .react-resizable-handle::after {
+  border-right-color: var(--color-gold);
+  border-bottom-color: var(--color-gold);
+}
+
+/* Dragging state */
+.dashboard-grid .react-grid-item.react-draggable-dragging {
+  z-index: 100;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  opacity: 0.9;
+}
+
+/* Resizing state */
+.dashboard-grid .react-grid-item.resizing {
+  z-index: 100;
+  border-color: var(--color-gold);
 }

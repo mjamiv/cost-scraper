@@ -9,6 +9,7 @@ import { mergeCostDataWithTags, filterByWBSTags, CostDataRowWithTags } from './u
 import { useAppStore } from './store/appStore';
 import { HealthScorecard } from './components/HealthScorecard';
 import { SCurveChart } from './components/SCurveChart';
+import { DashboardView } from './dashboard';
 
 // Lazy load heavy components for better initial load performance
 const DataTable = lazy(() => import('./components/DataTable').then(m => ({ default: m.DataTable })));
@@ -45,6 +46,7 @@ function App() {
   const aboutOpen = useAppStore(s => s.aboutOpen);
   const voiceChatOpen = useAppStore(s => s.voiceChatOpen);
   const chatChartRequest = useAppStore(s => s.chatChartRequest);
+  const viewMode = useAppStore(s => s.viewMode);
 
   // Zustand store actions
   const setRawCostData = useAppStore(s => s.setRawCostData);
@@ -58,6 +60,7 @@ function App() {
   const setAboutOpen = useAppStore(s => s.setAboutOpen);
   const setVoiceChatOpen = useAppStore(s => s.setVoiceChatOpen);
   const setChatChartRequest = useAppStore(s => s.setChatChartRequest);
+  const setViewMode = useAppStore(s => s.setViewMode);
 
   // Local ref for sidebar auto-close timer
   const sidebarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -257,6 +260,30 @@ function App() {
 
         {/* Right side navigation */}
         <nav className="flex items-center gap-4" role="navigation" aria-label="Main navigation">
+          {/* View Mode Toggle */}
+          <div className="header-view-toggle">
+            <button
+              onClick={() => setViewMode('chat')}
+              className={`header-view-toggle-btn ${viewMode === 'chat' ? 'active' : ''}`}
+              aria-label="Chat view"
+              title="Chat view"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+              </svg>
+            </button>
+            <button
+              onClick={() => setViewMode('dashboard')}
+              className={`header-view-toggle-btn ${viewMode === 'dashboard' ? 'active' : ''}`}
+              aria-label="Dashboard view"
+              title="Dashboard view"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
+              </svg>
+            </button>
+          </div>
+
           {/* Voice Chat Button */}
           <button
             onClick={() => setVoiceChatOpen(true)}
@@ -313,113 +340,122 @@ function App() {
           />
         </Sidebar>
 
-        {/* Main Chat Area */}
-        <main className="app-main" id="main-content" tabIndex={-1} role="main" aria-label="Chat interface">
-          {/* Health Scorecard - shown when data is loaded */}
-          {mergedData.length > 0 && (
-            <HealthScorecard
-              projectNumbers={filters.projectNumbers}
-              startMonth={filters.startMonth}
-            />
-          )}
+        {viewMode === 'dashboard' ? (
+          /* Dashboard View - Full Width Grid */
+          <main className="app-main app-main-dashboard" id="main-content" tabIndex={-1} role="main" aria-label="Dashboard">
+            <DashboardView data={data} isLoading={isLoading} />
+          </main>
+        ) : (
+          <>
+            {/* Main Chat Area */}
+            <main className="app-main" id="main-content" tabIndex={-1} role="main" aria-label="Chat interface">
+              {/* Health Scorecard - shown when data is loaded */}
+              {mergedData.length > 0 && (
+                <HealthScorecard
+                  projectNumbers={filters.projectNumbers}
+                  startMonth={filters.startMonth}
+                />
+              )}
 
-          {/* Error Alert */}
-          {error && (
-            <div className="chat-error-alert">
-              <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <div>
-                <h4 className="font-medium text-red-400">Error Loading Data</h4>
-                <p className="text-sm text-red-300/80">{error}</p>
-              </div>
-              <button
-                onClick={() => setError(null)}
-                className="ml-auto text-red-400 hover:text-red-300"
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          )}
-
-          {/* Chat Interface */}
-          <Suspense fallback={<LoadingFallback message="Loading chat..." />}>
-            <ChatInterface
-              data={mergedData}
-              onCommand={handleChatCommand}
-              filterHints={filterHints}
-              onChartRequest={handleChatChartRequest}
-            />
-          </Suspense>
-        </main>
-
-        {/* Right Panel - Chart/Table/Export */}
-        <RightPanel
-          isOpen={rightPanelOpen}
-          activeTab={rightPanelTab}
-          onTabChange={setRightPanelTab}
-          onClose={() => setRightPanelOpen(false)}
-          activeFilters={filters.wbsTags}
-        >
-          {rightPanelTab === 'chart' && (
-            <div className="right-panel-chart-container">
-              {mergedData.length > 0 ? (
-                <>
-                  <Suspense fallback={<LoadingFallback message="Loading charts..." />}>
-                    {chatChartRequest?.type === 'metric-trend' ? (
-                      <MetricTrendChart
-                        data={mergedData}
-                        dateRange={chatChartRequest?.dateRange || undefined}
-                        projects={chatChartRequest?.projects || undefined}
-                        tags={chatChartRequest?.tags || filters.wbsTags}
-                        metric={chatChartRequest?.metric || undefined}
-                        groupBy={chatChartRequest?.groupBy || undefined}
-                        style={chatChartRequest?.style || undefined}
-                      />
-                    ) : (
-                      <CostCharts data={mergedData} chartRequest={chatChartRequest} activeFilters={filters.wbsTags} />
-                    )}
-                  </Suspense>
-                  <div className="mt-4">
-                    <SCurveChart projectNumbers={filters.projectNumbers} startMonth={filters.startMonth} />
+              {/* Error Alert */}
+              {error && (
+                <div className="chat-error-alert">
+                  <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <div>
+                    <h4 className="font-medium text-red-400">Error Loading Data</h4>
+                    <p className="text-sm text-red-300/80">{error}</p>
                   </div>
-                </>
-              ) : (
-                <div className="panel-empty-state">
-                  <p>No data loaded. Use filters to load project data.</p>
+                  <button
+                    onClick={() => setError(null)}
+                    className="ml-auto text-red-400 hover:text-red-300"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
                 </div>
               )}
-            </div>
-          )}
-          {rightPanelTab === 'table' && (
-            <div className="right-panel-table-container">
-              {data.length > 0 ? (
-                <Suspense fallback={<LoadingFallback message="Loading table..." />}>
-                  <DataTable data={data} isLoading={isLoading} />
-                </Suspense>
-              ) : (
-                <div className="panel-empty-state">
-                  <p>No data loaded. Use filters to load project data.</p>
+
+              {/* Chat Interface */}
+              <Suspense fallback={<LoadingFallback message="Loading chat..." />}>
+                <ChatInterface
+                  data={mergedData}
+                  onCommand={handleChatCommand}
+                  filterHints={filterHints}
+                  onChartRequest={handleChatChartRequest}
+                />
+              </Suspense>
+            </main>
+
+            {/* Right Panel - Chart/Table/Export */}
+            <RightPanel
+              isOpen={rightPanelOpen}
+              activeTab={rightPanelTab}
+              onTabChange={setRightPanelTab}
+              onClose={() => setRightPanelOpen(false)}
+              activeFilters={filters.wbsTags}
+            >
+              {rightPanelTab === 'chart' && (
+                <div className="right-panel-chart-container">
+                  {mergedData.length > 0 ? (
+                    <>
+                      <Suspense fallback={<LoadingFallback message="Loading charts..." />}>
+                        {chatChartRequest?.type === 'metric-trend' ? (
+                          <MetricTrendChart
+                            data={mergedData}
+                            dateRange={chatChartRequest?.dateRange || undefined}
+                            projects={chatChartRequest?.projects || undefined}
+                            tags={chatChartRequest?.tags || filters.wbsTags}
+                            metric={chatChartRequest?.metric || undefined}
+                            groupBy={chatChartRequest?.groupBy || undefined}
+                            style={chatChartRequest?.style || undefined}
+                          />
+                        ) : (
+                          <CostCharts data={mergedData} chartRequest={chatChartRequest} activeFilters={filters.wbsTags} />
+                        )}
+                      </Suspense>
+                      <div className="mt-4">
+                        <SCurveChart projectNumbers={filters.projectNumbers} startMonth={filters.startMonth} />
+                      </div>
+                    </>
+                  ) : (
+                    <div className="panel-empty-state">
+                      <p>No data loaded. Use filters to load project data.</p>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
-          {rightPanelTab === 'export' && (
-            <div className="right-panel-export-container">
-              {data.length > 0 ? (
-                <Suspense fallback={<LoadingFallback message="Loading export..." />}>
-                  <DataExportPanel data={data} />
-                </Suspense>
-              ) : (
-                <div className="panel-empty-state">
-                  <p>No data loaded. Use filters to load project data.</p>
+              {rightPanelTab === 'table' && (
+                <div className="right-panel-table-container">
+                  {data.length > 0 ? (
+                    <Suspense fallback={<LoadingFallback message="Loading table..." />}>
+                      <DataTable data={data} isLoading={isLoading} />
+                    </Suspense>
+                  ) : (
+                    <div className="panel-empty-state">
+                      <p>No data loaded. Use filters to load project data.</p>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
-          )}
-        </RightPanel>
+              {rightPanelTab === 'export' && (
+                <div className="right-panel-export-container">
+                  {data.length > 0 ? (
+                    <Suspense fallback={<LoadingFallback message="Loading export..." />}>
+                      <DataExportPanel data={data} />
+                    </Suspense>
+                  ) : (
+                    <div className="panel-empty-state">
+                      <p>No data loaded. Use filters to load project data.</p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </RightPanel>
+          </>
+        )}
       </div>
 
       {/* About Modal */}
